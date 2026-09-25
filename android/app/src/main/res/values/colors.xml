@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Material 3 配色 token（浅色）
+
+    这套色值不是随手调的，是按 material-foundation/material-color-utilities 的
+    HCT 算法（blue seed）生成的官方取值。抄 token 而不引库 ——
+    拿到 Material You 的视觉规范，但不付出 2.7MB AAR 的代价。
+
+    深色覆盖见 values-night/colors.xml（同名 color 会自动覆盖，布局无需感知）。
+-->
+<resources>
+
+    <!-- ========== Primary ========== -->
+    <color name="md_primary">#415F91</color>
+    <color name="md_on_primary">#FFFFFF</color>
+    <color name="md_primary_container">#D6E3FF</color>
+    <color name="md_on_primary_container">#001B3E</color>
+
+    <!-- ========== Secondary ========== -->
+    <color name="md_secondary">#565F71</color>
+    <color name="md_secondary_container">#DAE2F9</color>
+    <color name="md_on_secondary_container">#131C2B</color>
+
+    <!-- ========== Tertiary ========== -->
+    <color name="md_tertiary">#705575</color>
+    <color name="md_tertiary_container">#FAD8FD</color>
+    <color name="md_on_tertiary_container">#28132E</color>
+
+    <!-- ========== Error ========== -->
+    <color name="md_error">#BA1A1A</color>
+    <color name="md_error_container">#FFDAD6</color>
+    <color name="md_on_error_container">#410002</color>
+
+    <!-- ========== Surface 层级 ==========
+         M3 用「表面容器」的明度差来表达层次，而不是阴影。
+         surface 是页面底，surface_container* 逐级抬升，卡片用 container、输入框用 high。 -->
+    <color name="md_background">#F9F9FF</color>
+    <color name="md_on_background">#1A1B20</color>
+    <color name="md_surface">#F9F9FF</color>
+    <color name="md_on_surface">#1A1B20</color>
+    <color name="md_surface_container_low">#F3F3FA</color>
+    <color name="md_surface_container">#EDEDF4</color>
+    <color name="md_surface_container_high">#E7E8EE</color>
+    <color name="md_surface_container_highest">#E2E2E9</color>
+    <color name="md_surface_variant">#E0E2EC</color>
+    <color name="md_on_surface_variant">#44474E</color>
+
+    <!-- ========== Outline ========== -->
+    <color name="md_outline">#74777F</color>
+    <color name="md_outline_variant">#C4C6D0</color>
+
+    <!-- ========== 涟漪（M3 未定义，按前景色取 12%~20% 透明度）========== -->
+    <color name="ripple_on_primary">#33FFFFFF</color>
+    <color name="ripple_on_surface">#1F000000</color>
+
+    <!-- ========== 语义状态色（M3 未定义状态色，自建）========== -->
+    <color name="status_ok">#1B6C3A</color>
+    <color name="status_bad">#BA1A1A</color>
+    <color name="status_idle">#74777F</color>
+
+</resources>

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    应用主题（浅色）
+
+    不引 AppCompat，直接用 framework 自带的 Theme.Material.Light，
+    再把 Material 3 的 token 灌进 framework 的着色属性里。
+
+    深色版本见 values-night/themes.xml —— 同名 style 自动覆盖，
+    布局侧完全不用关心当前是哪种模式。
+-->
+<resources>
+
+    <style name="Theme.AutoCheckin" parent="@android:style/Theme.Material.Light.NoActionBar">
+
+        <!-- 强调色：原生 CheckBox / Switch / EditText 光标都吃这个 -->
+        <item name="android:colorAccent">@color/md_primary</item>
+        <item name="android:colorControlActivated">@color/md_primary</item>
+        <item name="android:colorControlNormal">@color/md_on_surface_variant</item>
+        <item name="android:colorControlHighlight">@color/ripple_on_surface</item>
+
+        <!-- 主色 / 状态栏 -->
+        <item name="android:colorPrimary">@color/md_primary</item>
+        <item name="android:colorPrimaryDark">@color/md_surface_container</item>
+        <item name="android:statusBarColor">@color/md_surface_container</item>
+        <item name="android:navigationBarColor">@color/md_surface_container</item>
+
+        <!-- 浅色底 → 系统栏图标必须是深色，否则看不见 -->
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+
+        <!-- 页面底与文字色 -->
+        <item name="android:windowBackground">@color/md_background</item>
+        <item name="android:colorBackground">@color/md_background</item>
+        <item name="android:textColorPrimary">@color/md_on_surface</item>
+        <item name="android:textColorSecondary">@color/md_on_surface_variant</item>
+        <item name="android:textColorHint">@color/md_on_surface_variant</item>
+
+        <!-- 滚动到边缘时的辉光色 -->
+        <item name="android:colorEdgeEffect">@color/md_outline_variant</item>
+    </style>
+
+</resources>

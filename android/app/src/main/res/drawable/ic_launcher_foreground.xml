@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    应用图标 · 前景层（自适应图标）
+
+    设计：开口圆环 + 对勾
+      · 圆环隐喻「每一天的打卡周期」
+      · 开口在右上，表示「待完成 → 已完成」的瞬时状态
+      · 对勾自环内穿出缺口，有「达成」的动势
+
+    几何（108×108 画布，圆心 54,54）：
+      · 系统只显示中间 72×72，四周各 18dp 会被裁掉，
+        全部图形必须收在半径 36 内 —— 本图最远点 27.25（环外缘），留 8.75 余量。
+        余量给得足，是因为 EMUI / OneUI / Pixel 的遮罩形状各不相同，
+        贴边画在圆形遮罩下会被削掉。
+      · 圆环 R=24，开口为钟表角 22.5°~67.5°（45°），另一侧扫过 315°
+        → large-arc-flag=1。
+      · 对勾 (41.5,56) → (49,64.5) → (70.32,37.1)，stroke 与环同宽。
+        终点方向 44°，正对缺口中心；与两个环端点各距 9.69 / 14.39，
+        减去两 stroke 半径和 6.5，净间隙 3.19，不会粘连。
+
+    ⚠️ 两轮真机迭代换来的经验：
+      1. 开口给 70° 时，真机上环变成个「C」形、右上大片空白，整枚图标重心歪向
+         左下，像个刷新按钮。**开口必须收在 45° 左右**——超过 50° 就会散，
+         小于 30° 又退化成普通圆环，看不出缺口。
+      2. 圆环 R=26 + 勾 stroke 7 时，勾伸出环外的那一段会和缺口边缘「连成一片」，
+         看起来像旋转箭头。**环收到 R=24、勾同步收小、两者 stroke 同宽**才干净。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 圆环（开口 45°，位于右上） -->
+    <path
+        android:pathData="M76.17,44.82 A24,24 0 1 1 63.18,31.83"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="6.5"
+        android:strokeLineCap="round" />
+
+    <!-- 对勾（自环内穿出缺口） -->
+    <path
+        android:pathData="M41.5,56 L49,64.5 L70.32,37.1"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="6.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+</vector>

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  flagReportViewIds 必须开启，否则脚本拿不到控件的 viewIdResourceName，
+  按 id 定位的步骤会全部失效。
+
+  canPerformGestures 必须显式声明为 true！它默认为 false，
+  不写这一行 dispatchGesture() 【一律失败】——
+  表现就是「日志里坐标点击永远未生效」，而 adb shell input tap 同坐标却一次就中。
+  2026-09-25 真机实测（Android 12 / 华为）踩过这个坑：快门坐标 540,2068 明明是对的，
+  系统级注入能进 IMGEditActivity（拍照成功），无障碍派发却 6 次全灭。
+
+  canTakeScreenshot 是给「图像识别找快门」用的（ShutterFinder）：
+  相机页的快门是无障碍节点树里读不到的裸 View，按 id 找不到、
+  按比例算坐标又会撞上坐标系偏移（displayMetrics 2273 vs 屏幕 2400）。
+  直接截图认像素反而最准。需要 Android 11+，低版本会自动回退到比例坐标。
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault|flagReportViewIds|flagRetrieveInteractiveWindows"
+    android:canPerformGestures="true"
+    android:canRetrieveWindowContent="true"
+    android:canTakeScreenshot="true"
+    android:description="@string/accessibility_desc"
+    android:notificationTimeout="100"
+    android:settingsActivity="com.xiaoyao.autocheckin.MainActivity" />

@@ -1,0 +1,847 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    主界面 · 底部导航三页
+
+    设计语言：Material 3，但不引 Material 库（配色 token 手抄自官方，
+    形状/涟漪用 framework 原生 drawable 实现）。
+
+    结构：
+      FrameLayout   ← 三个页面叠放，靠 visibility 切换（不重建视图，切页零延迟）
+        ├ 状态页    当前是否具备运行条件 + 立即执行 + 运行日志
+        ├ 设置页    所有需要填/改的配置项，改完统一保存
+        └ 关于页    这是什么、怎么用、有什么坑
+      LinearLayout  ← 底部 Tab 栏（M3 Navigation Bar 造型，自绘）
+
+    为什么这么分：原先把「看状态」和「改配置」混在一根长条里，
+    看一眼运行情况要滚过四张配置卡片，改个时间又要滚回去找日志。
+    按「只读 / 可写 / 说明」拆开后，每一页都短到一屏放得下。
+
+    层次靠 surface_container 的明度差表达，不用阴影；卡片间距 14dp，卡内边距 16dp。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/md_background"
+    android:orientation="vertical">
+
+    <!-- ==================== 页面区 ==================== -->
+    <FrameLayout
+        android:id="@+id/pageHost"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <!-- ==================== ① 状态 ==================== -->
+        <ScrollView
+            android:id="@+id/pageStatus"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:fillViewport="true"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingHorizontal="20dp"
+                android:paddingTop="24dp"
+                android:paddingBottom="24dp">
+
+                <TextView
+                    style="@style/TitleText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="自动签到" />
+
+                <TextView
+                    style="@style/SubtitleText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="18dp"
+                    android:text="晚归签到自动执行 · 免 root · 无障碍方案" />
+
+                <!-- 运行状态 -->
+                <LinearLayout style="@style/Card"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <TextView
+                        style="@style/CardTitle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="运行状态" />
+
+                    <LinearLayout
+                        style="@style/StatusRow"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp">
+
+                        <View
+                            android:id="@+id/dotAccess"
+                            android:layout_width="9dp"
+                            android:layout_height="9dp"
+                            android:background="@drawable/bg_dot" />
+
+                        <TextView
+                            style="@style/StatusLabel"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="10dp"
+                            android:layout_weight="1"
+                            android:text="无障碍服务" />
+
+                        <TextView
+                            android:id="@+id/valAccess"
+                            style="@style/StatusValue"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="检测中…" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        style="@style/StatusRow"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content">
+
+                        <View
+                            android:id="@+id/dotOverlay"
+                            android:layout_width="9dp"
+                            android:layout_height="9dp"
+                            android:background="@drawable/bg_dot" />
+
+                        <TextView
+                            style="@style/StatusLabel"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="10dp"
+                            android:layout_weight="1"
+                            android:text="悬浮窗权限" />
+
+                        <TextView
+                            android:id="@+id/valOverlay"
+                            style="@style/StatusValue"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="检测中…" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        style="@style/StatusRow"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content">
+
+                        <View
+                            android:id="@+id/dotProbe"
+                            android:layout_width="9dp"
+                            android:layout_height="9dp"
+                            android:background="@drawable/bg_dot" />
+
+                        <TextView
+                            style="@style/StatusLabel"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="10dp"
+                            android:layout_weight="1"
+                            android:text="后台跳转豁免" />
+
+                        <TextView
+                            android:id="@+id/valProbe"
+                            style="@style/StatusValue"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="检测中…" />
+                    </LinearLayout>
+
+                    <Button
+                        android:id="@+id/btnAccess"
+                        style="@style/OutlinedButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:text="打开无障碍设置" />
+                </LinearLayout>
+
+                <!-- 立即执行 -->
+                <Button
+                    android:id="@+id/btnRun"
+                    style="@style/PrimaryButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="立即执行一次" />
+
+                <TextView
+                    style="@style/CardHint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="手动测试会先保存当前配置再执行。定时触发请到「设置」页设定时间。" />
+
+                <!-- 运行日志 -->
+                <LinearLayout style="@style/Card"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="18dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            style="@style/CardTitle"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="运行日志" />
+
+                        <Button
+                            android:id="@+id/btnClearLog"
+                            style="@style/TextButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="清空" />
+                    </LinearLayout>
+
+                    <ScrollView
+                        android:id="@+id/logScroll"
+                        android:layout_width="match_parent"
+                        android:layout_height="260dp"
+                        android:layout_marginTop="8dp"
+                        android:background="@drawable/bg_log"
+                        android:padding="12dp"
+                        android:scrollbars="none">
+
+                        <TextView
+                            android:id="@+id/tvLog"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:lineSpacingExtra="3dp"
+                            android:text="（暂无日志）"
+                            android:textColor="@color/md_on_surface_variant"
+                            android:textSize="11sp"
+                            android:typeface="monospace" />
+                    </ScrollView>
+                </LinearLayout>
+
+            </LinearLayout>
+        </ScrollView>
+
+        <!-- ==================== ② 设置 ==================== -->
+        <ScrollView
+            android:id="@+id/pageSettings"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:fillViewport="true"
+            android:scrollbars="none"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingHorizontal="20dp"
+                android:paddingTop="24dp"
+                android:paddingBottom="24dp">
+
+                <TextView
+                    style="@style/TitleText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="设置" />
+
+                <TextView
+                    style="@style/SubtitleText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="18dp"
+                    android:text="改完记得点最下方的保存" />
+
+                <!-- 签到入口 -->
+                <LinearLayout style="@style/Card"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <TextView
+                        style="@style/CardTitle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="签到入口链接" />
+
+                    <TextView
+                        style="@style/CardHint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="3dp"
+                        android:layout_marginBottom="10dp"
+                        android:text="deeplink 或 intent 原样粘贴。扫码链接优先，失败自动回落到主页入口" />
+
+                    <EditText
+                        android:id="@+id/etIntent"
+                        style="@style/FieldEdit"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="hwwelink://... 或 intent://...#Intent;...end"
+                        android:importantForAutofill="no"
+                        android:inputType="textUri" />
+                </LinearLayout>
+
+                <!-- 目标应用 -->
+                <LinearLayout style="@style/Card"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp">
+
+                    <TextView
+                        style="@style/CardTitle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="目标应用包名" />
+
+                    <TextView
+                        style="@style/CardHint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="3dp"
+                        android:layout_marginBottom="10dp"
+                        android:text="用于判断是否真的跳转成功，留空则不校验" />
+
+                    <EditText
+                        android:id="@+id/etPkg"
+                        style="@style/FieldEdit"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="cn.edu.fafu.iportal"
+                        android:importantForAutofill="no"
+                        android:inputType="text" />
+                </LinearLayout>
+
+                <!-- 点击步骤 -->
+                <LinearLayout style="@style/Card"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp">
+
+                    <TextView
+                        style="@style/CardTitle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="点击步骤" />
+
+                    <TextView
+                        style="@style/CardHint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="3dp"
+                        android:layout_marginBottom="10dp"
+                        android:text="每行一条，自上而下执行\n格式  kind|value|contains|optional|waitMs|last\nkind = tab / text / textwait / id / desc / cls / uni / uiwait / xy / shutter / scroll / sleep" />
+
+                    <EditText
+                        android:id="@+id/etSteps"
+                        style="@style/FieldEditMono"
+                        android:layout_width="match_parent"
+                        android:layout_height="260dp"
+                        android:gravity="top|start"
+                        android:importantForAutofill="no"
+                        android:inputType="textMultiLine|textNoSuggestions" />
+                </LinearLayout>
+
+                <!-- 每日定时 -->
+                <LinearLayout style="@style/Card"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp">
+
+                    <TextView
+                        style="@style/CardTitle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="每日定时" />
+
+                    <Switch
+                        android:id="@+id/cbEnabled"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:minHeight="0dp"
+                        android:text="启用自动签到"
+                        android:textColor="@color/md_on_surface"
+                        android:textSize="14sp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <EditText
+                            android:id="@+id/etHour"
+                            style="@style/FieldEdit"
+                            android:layout_width="78dp"
+                            android:layout_height="wrap_content"
+                            android:gravity="center"
+                            android:importantForAutofill="no"
+                            android:inputType="number"
+                            android:maxLength="2" />
+
+                        <TextView
+                            style="@style/StatusLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:text="时" />
+
+                        <EditText
+                            android:id="@+id/etMinute"
+                            style="@style/FieldEdit"
+                            android:layout_width="78dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="20dp"
+                            android:gravity="center"
+                            android:importantForAutofill="no"
+                            android:inputType="number"
+                            android:maxLength="2" />
+
+                        <TextView
+                            style="@style/StatusLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:text="分" />
+                    </LinearLayout>
+
+                    <TextView
+                        style="@style/CardHint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="建议设在签到窗口开启后几分钟，留出 App 加载时间" />
+                </LinearLayout>
+
+                <!-- 调试 -->
+                <LinearLayout style="@style/Card"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp">
+
+                    <TextView
+                        style="@style/CardTitle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="调试" />
+
+                    <Switch
+                        android:id="@+id/cbDebug"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:minHeight="0dp"
+                        android:text="只跑 1 轮，失败即停并保留现场"
+                        android:textColor="@color/md_on_surface"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        style="@style/CardHint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="立即生效，不需要点保存。排查问题后记得关掉" />
+                </LinearLayout>
+
+                <Button
+                    android:id="@+id/btnSave"
+                    style="@style/PrimaryButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="18dp"
+                    android:text="保存配置并应用定时" />
+
+            </LinearLayout>
+        </ScrollView>
+
+        <!-- ==================== ③ 关于 ==================== -->
+        <ScrollView
+            android:id="@+id/pageAbout"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:fillViewport="true"
+            android:scrollbars="none"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingHorizontal="20dp"
+                android:paddingTop="24dp"
+                android:paddingBottom="24dp">
+
+                <TextView
+                    style="@style/TitleText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="自动签到" />
+
+                <TextView
+                    android:id="@+id/tvVersion"
+                    style="@style/SubtitleText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="18dp"
+                    android:text="版本 —" />
+
+                <!-- 软件更新 -->
+                <LinearLayout style="@style/Card"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            style="@style/CardTitle"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="软件更新" />
+
+                        <Button
+                            android:id="@+id/btnCheckUpdate"
+                            style="@style/TextButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="检查更新" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/tvUpdateState"
+                        style="@style/CardHint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="与 GitHub 上的最新发布对比版本号" />
+                </LinearLayout>
+
+                <!-- 相关链接 -->
+                <LinearLayout style="@style/Card"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp">
+
+                    <TextView
+                        style="@style/CardTitle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="相关链接" />
+
+                    <LinearLayout
+                        android:id="@+id/lnkRepo"
+                        style="@style/LinkRow"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp">
+
+                        <TextView
+                            style="@style/LinkText"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="GitHub 仓库" />
+
+                        <TextView
+                            style="@style/LinkArrow"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="↗" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/lnkLatest"
+                        style="@style/LinkRow"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content">
+
+                        <TextView
+                            style="@style/LinkText"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="下载最新版" />
+
+                        <TextView
+                            style="@style/LinkArrow"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="↗" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/lnkIssues"
+                        style="@style/LinkRow"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content">
+
+                        <TextView
+                            style="@style/LinkText"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="反馈问题" />
+
+                        <TextView
+                            style="@style/LinkArrow"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="↗" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- 工作原理（点标题行折叠展开） -->
+                <LinearLayout style="@style/Card"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp">
+
+                    <LinearLayout
+                        android:id="@+id/hdrHow"
+                        style="@style/FoldHeader"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content">
+
+                        <TextView
+                            style="@style/CardTitle"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="工作原理" />
+
+                        <TextView
+                            android:id="@+id/arwHow"
+                            style="@style/FoldArrow"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="▾" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/bodyHow"
+                        style="@style/BodyText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:visibility="gone"
+                        android:text="通过系统无障碍服务读取屏幕上的控件，再按你在「设置」里写好的步骤依次点击，走完整个签到流程。\n\n全程不修改目标应用的任何数据，也不注入代码，只是模拟一只手在点屏幕。因此它天然跟随界面变化——目标应用改版后，改步骤表即可，无需重新打包。" />
+                </LinearLayout>
+
+                <!-- 首次使用（点标题行折叠展开） -->
+                <LinearLayout style="@style/Card"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp">
+
+                    <LinearLayout
+                        android:id="@+id/hdrSteps"
+                        style="@style/FoldHeader"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content">
+
+                        <TextView
+                            style="@style/CardTitle"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="首次使用三步" />
+
+                        <TextView
+                            android:id="@+id/arwSteps"
+                            style="@style/FoldArrow"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="▾" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/bodySteps"
+                        style="@style/BodyText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:visibility="gone"
+                        android:text="① 在「状态」页开启无障碍服务，并授予悬浮窗权限。\n\n② 在「设置」页粘贴签到入口链接与目标应用包名，保存。\n\n③ 打开每日定时并设定时间，建议设在签到窗口开启后几分钟。" />
+                </LinearLayout>
+
+                <!-- 注意事项（点标题行折叠展开） -->
+                <LinearLayout style="@style/Card"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp">
+
+                    <LinearLayout
+                        android:id="@+id/hdrNotes"
+                        style="@style/FoldHeader"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content">
+
+                        <TextView
+                            style="@style/CardTitle"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="注意事项" />
+
+                        <TextView
+                            android:id="@+id/arwNotes"
+                            style="@style/FoldArrow"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="▾" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/bodyNotes"
+                        style="@style/BodyText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:visibility="gone"
+                        android:text="· 定时触发时本应用在后台，必须授予「显示在其他应用上层」，否则跳转会被 Android 12 及以上静默拦截。\n\n· 目标页面偶发卡在「加载中」，程序会自动退回并重开卡片重试，无需人工干预。\n\n· 步骤表里「提交签到」一步默认关闭。请先确认整条链路无误，再自行启用。" />
+                </LinearLayout>
+
+            </LinearLayout>
+        </ScrollView>
+
+    </FrameLayout>
+
+    <!-- ==================== 底部 Tab 栏 ==================== -->
+    <LinearLayout
+        android:id="@+id/tabBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/bg_tab_bar"
+        android:orientation="horizontal"
+        android:paddingHorizontal="8dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp">
+
+        <!-- ① 状态 -->
+        <LinearLayout
+            android:id="@+id/tabStatus"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@drawable/bg_tab_item"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:paddingVertical="8dp">
+
+            <FrameLayout
+                android:id="@+id/indStatus"
+                android:layout_width="56dp"
+                android:layout_height="32dp"
+                android:background="@drawable/bg_tab_indicator">
+
+                <ImageView
+                    android:id="@+id/icoStatus"
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:layout_gravity="center"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_tab_status" />
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/lblStatus"
+                style="@style/TabLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="状态" />
+        </LinearLayout>
+
+        <!-- ② 设置 -->
+        <LinearLayout
+            android:id="@+id/tabSettings"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@drawable/bg_tab_item"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:paddingVertical="8dp">
+
+            <FrameLayout
+                android:id="@+id/indSettings"
+                android:layout_width="56dp"
+                android:layout_height="32dp"
+                android:background="@drawable/bg_tab_indicator">
+
+                <ImageView
+                    android:id="@+id/icoSettings"
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:layout_gravity="center"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_tab_settings" />
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/lblSettings"
+                style="@style/TabLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="设置" />
+        </LinearLayout>
+
+        <!-- ③ 关于 -->
+        <LinearLayout
+            android:id="@+id/tabAbout"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@drawable/bg_tab_item"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:paddingVertical="8dp">
+
+            <FrameLayout
+                android:id="@+id/indAbout"
+                android:layout_width="56dp"
+                android:layout_height="32dp"
+                android:background="@drawable/bg_tab_indicator">
+
+                <ImageView
+                    android:id="@+id/icoAbout"
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:layout_gravity="center"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_tab_about" />
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/lblAbout"
+                style="@style/TabLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="关于" />
+        </LinearLayout>
+
+    </LinearLayout>
+</LinearLayout>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 日志区底：比卡片再高一级的容器色，等宽字体配深一点的底更好读 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/md_surface_container_high" />
+    <corners android:radius="12dp" />
+</shape>

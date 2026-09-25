@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Tab 图标 · 状态
+    心电图折线：一眼看出「运行/活动」的语义，比圆圈感叹号更贴「当前在不在跑」。
+    描边风格（不填充），和另外两个实心图标放在一起时视觉重量接近。
+
+    颜色只是默认值，真正的高亮由 MainActivity 按选中态 setColorFilter 覆盖。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <path
+        android:pathData="M3,12 h3.2 l2.3,-6.5 l3.6,13 l2.6,-8 l1.6,3.5 h4.7"
+        android:strokeColor="@color/md_on_surface_variant"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

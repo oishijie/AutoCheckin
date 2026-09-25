@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 卡片底：16dp 圆角实心，靠明度差而非阴影表达层次（M3 的做法） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/md_surface_container" />
+    <corners android:radius="16dp" />
+</shape>

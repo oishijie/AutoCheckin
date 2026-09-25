@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Material 3 配色 token（深色）
+
+    与 values/colors.xml 同名同结构，系统在深色模式下自动选用这一份，
+    布局文件完全不需要写 android:layout 之类的判断，也不需要 DayNight 库。
+
+    注意深色下的关键差异：
+      · primary 变成【浅色】（#AAC7FF）—— M3 深色主题里的强调色要够亮
+      · surface 越"高"越亮（浅色主题里是越低越暗），层次方向相反
+      · 涟漪要用深色，浅色涟漪在浅色 primary 上看不见
+-->
+<resources>
+
+    <!-- ========== Primary ========== -->
+    <color name="md_primary">#AAC7FF</color>
+    <color name="md_on_primary">#0A305F</color>
+    <color name="md_primary_container">#284777</color>
+    <color name="md_on_primary_container">#D6E3FF</color>
+
+    <!-- ========== Secondary ========== -->
+    <color name="md_secondary">#BEC6DC</color>
+    <color name="md_secondary_container">#3E4759</color>
+    <color name="md_on_secondary_container">#DAE2F9</color>
+
+    <!-- ========== Tertiary ========== -->
+    <color name="md_tertiary">#DDBCE0</color>
+    <color name="md_tertiary_container">#573E5C</color>
+    <color name="md_on_tertiary_container">#FAD8FD</color>
+
+    <!-- ========== Error ========== -->
+    <color name="md_error">#FFB4AB</color>
+    <color name="md_error_container">#93000A</color>
+    <color name="md_on_error_container">#FFDAD6</color>
+
+    <!-- ========== Surface 层级 ========== -->
+    <color name="md_background">#111318</color>
+    <color name="md_on_background">#E2E2E9</color>
+    <color name="md_surface">#111318</color>
+    <color name="md_on_surface">#E2E2E9</color>
+    <color name="md_surface_container_low">#1A1B20</color>
+    <color name="md_surface_container">#1E1F25</color>
+    <color name="md_surface_container_high">#282A2F</color>
+    <color name="md_surface_container_highest">#33353A</color>
+    <color name="md_surface_variant">#44474E</color>
+    <color name="md_on_surface_variant">#C4C6D0</color>
+
+    <!-- ========== Outline ========== -->
+    <color name="md_outline">#8E9099</color>
+    <color name="md_outline_variant">#44474E</color>
+
+    <!-- ========== 涟漪 ========== -->
+    <color name="ripple_on_primary">#33000000</color>
+    <color name="ripple_on_surface">#1FFFFFFF</color>
+
+    <!-- ========== 语义状态色 ========== -->
+    <color name="status_ok">#7BD99B</color>
+    <color name="status_bad">#FFB4AB</color>
+    <color name="status_idle">#8E9099</color>
+
+</resources>

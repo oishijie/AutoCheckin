@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Tab 选中指示器：M3 Navigation Bar 的 pill 造型（56x32，全圆角）。
+    选中时才出现 primary_container 底，未选中完全透明 ——
+    靠「有没有那块浅蓝」而不是靠加粗字体来表达选中，视觉更干净。
+
+    状态切换由代码设 View.isSelected 驱动。
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item android:state_selected="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/md_primary_container" />
+            <corners android:radius="16dp" />
+        </shape>
+    </item>
+
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/transparent" />
+            <corners android:radius="16dp" />
+        </shape>
+    </item>
+
+</selector>

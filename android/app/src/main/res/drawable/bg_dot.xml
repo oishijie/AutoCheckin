@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    状态指示点：9dp 圆形。
+    这里只定形状，颜色由 MainActivity 按状态 tint（绿/红/灰），
+    一个 drawable 覆盖三种状态，不必建三份资源。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="@color/status_idle" />
+    <size android:width="9dp" android:height="9dp" />
+</shape>

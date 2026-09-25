@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    应用主题（深色）
+
+    与 values/themes.xml 同名，系统在深色模式下自动选用。
+    父主题从 Light 换成深色版，并翻转系统栏图标亮度。
+-->
+<resources>
+
+    <style name="Theme.AutoCheckin" parent="@android:style/Theme.Material.NoActionBar">
+
+        <item name="android:colorAccent">@color/md_primary</item>
+        <item name="android:colorControlActivated">@color/md_primary</item>
+        <item name="android:colorControlNormal">@color/md_on_surface_variant</item>
+        <item name="android:colorControlHighlight">@color/ripple_on_surface</item>
+
+        <item name="android:colorPrimary">@color/md_primary</item>
+        <item name="android:colorPrimaryDark">@color/md_surface_container</item>
+        <item name="android:statusBarColor">@color/md_surface_container</item>
+        <item name="android:navigationBarColor">@color/md_surface_container</item>
+
+        <!-- 深色底 → 系统栏图标必须是浅色 -->
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+
+        <item name="android:windowBackground">@color/md_background</item>
+        <item name="android:colorBackground">@color/md_background</item>
+        <item name="android:textColorPrimary">@color/md_on_surface</item>
+        <item name="android:textColorSecondary">@color/md_on_surface_variant</item>
+        <item name="android:textColorHint">@color/md_on_surface_variant</item>
+
+        <item name="android:colorEdgeEffect">@color/md_outline_variant</item>
+    </style>
+
+</resources>

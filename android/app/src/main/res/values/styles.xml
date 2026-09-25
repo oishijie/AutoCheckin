@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    可复用样式
+
+    抽出来的目的：让 activity_main.xml 只表达「结构」，不重复堆视觉属性。
+    改配色/圆角/字号只动这里一处。
+-->
+<resources>
+
+    <!-- ========== 文字 ========== -->
+
+    <!-- 页面主标题 -->
+    <style name="TitleText">
+        <item name="android:textColor">@color/md_on_surface</item>
+        <item name="android:textSize">24sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:letterSpacing">-0.01</item>
+    </style>
+
+    <!-- 页面副标题 -->
+    <style name="SubtitleText">
+        <item name="android:textColor">@color/md_on_surface_variant</item>
+        <item name="android:textSize">13sp</item>
+    </style>
+
+    <!-- 卡片内小节标题 -->
+    <style name="CardTitle">
+        <item name="android:textColor">@color/md_on_surface</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <!-- 卡片内辅助说明 -->
+    <style name="CardHint">
+        <item name="android:textColor">@color/md_on_surface_variant</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:lineSpacingExtra">2dp</item>
+    </style>
+
+    <!-- 状态行的标签 -->
+    <style name="StatusLabel">
+        <item name="android:textColor">@color/md_on_surface</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <!-- 状态行的值（颜色由代码按状态 tint） -->
+    <style name="StatusValue">
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/status_idle</item>
+    </style>
+
+    <!-- 正文段落（关于页的解释文字）：比 CardHint 松一点，适合连续阅读 -->
+    <style name="BodyText">
+        <item name="android:textColor">@color/md_on_surface_variant</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:lineSpacingExtra">5dp</item>
+    </style>
+
+    <!-- ========== 控件 ========== -->
+
+    <!-- 底部 Tab 的文字标签。颜色由代码按选中态切换，这里只定默认 -->
+    <style name="TabLabel">
+        <item name="android:textColor">@color/md_on_surface_variant</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:letterSpacing">0.01</item>
+    </style>
+
+    <!-- 通用输入框 -->
+    <style name="FieldEdit">
+        <item name="android:background">@drawable/bg_field</item>
+        <item name="android:textColor">@color/md_on_surface</item>
+        <item name="android:textColorHint">@color/md_on_surface_variant</item>
+        <item name="android:textSize">14sp</item>
+        <!-- 覆盖 background 会丢掉自带内边距，这里补回来 -->
+        <item name="android:paddingHorizontal">14dp</item>
+        <item name="android:paddingVertical">12dp</item>
+    </style>
+
+    <!-- 等宽输入框（步骤表 / 日志） -->
+    <style name="FieldEditMono" parent="FieldEdit">
+        <item name="android:typeface">monospace</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:lineSpacingExtra">3dp</item>
+    </style>
+
+    <!-- 主按钮：主色实心 -->
+    <style name="PrimaryButton">
+        <item name="android:background">@drawable/bg_btn_primary</item>
+        <item name="android:textColor">@color/md_on_primary</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:letterSpacing">0.02</item>
+        <!-- 原生 Button 自带最小尺寸和 Lollipop 抬升动画，关掉才能自由控高 -->
+        <item name="android:minHeight">0dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:stateListAnimator">@null</item>
+        <item name="android:paddingHorizontal">18dp</item>
+        <item name="android:paddingVertical">14dp</item>
+    </style>
+
+    <!-- 次按钮：描边 -->
+    <style name="OutlinedButton" parent="PrimaryButton">
+        <item name="android:background">@drawable/bg_btn_outlined</item>
+        <item name="android:textColor">@color/md_primary</item>
+    </style>
+
+    <!-- 文本按钮（清空） -->
+    <style name="TextButton">
+        <item name="android:background">@drawable/bg_btn_text</item>
+        <item name="android:textColor">@color/md_primary</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:minHeight">0dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:stateListAnimator">@null</item>
+        <item name="android:paddingHorizontal">14dp</item>
+        <item name="android:paddingVertical">8dp</item>
+    </style>
+
+    <!-- ========== 关于页 ========== -->
+
+    <!--
+        可折叠卡片的标题行：整行可点，右侧一个箭头当展开指示。
+        箭头不换字符、只做旋转（展开 0°、收起 -90°，正好由 ▾ 转到 ▸），
+        省掉两套图标，转场也更顺。
+    -->
+    <style name="FoldHeader">
+        <item name="android:orientation">horizontal</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="android:background">@drawable/bg_btn_text</item>
+        <item name="android:minHeight">32dp</item>
+    </style>
+
+    <style name="FoldArrow">
+        <item name="android:textColor">@color/md_on_surface_variant</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <!-- 可点的一行外链：整行吃掉点击，箭头染主色 -->
+    <style name="LinkRow">
+        <item name="android:orientation">horizontal</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="android:background">@drawable/bg_btn_text</item>
+        <item name="android:minHeight">40dp</item>
+    </style>
+
+    <style name="LinkText">
+        <item name="android:textColor">@color/md_on_surface</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="LinkArrow">
+        <item name="android:textColor">@color/md_primary</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <!-- ========== 容器 ========== -->
+
+    <!-- 卡片：圆角底 + 统一内边距 -->
+    <style name="Card">
+        <item name="android:background">@drawable/bg_card</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:padding">16dp</item>
+    </style>
+
+    <!-- 状态行：点 + 标签 + 值 -->
+    <style name="StatusRow">
+        <item name="android:orientation">horizontal</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:paddingVertical">7dp</item>
+    </style>
+
+</resources>

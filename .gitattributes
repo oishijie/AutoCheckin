@@ -1,0 +1,10 @@
+# 源码统一以 LF 入库：Windows 下工作区仍是 CRLF，但仓库里不出现整文件级的换行符改动
+* text=auto eol=lf
+
+# 二进制：不做任何换行符转换
+*.apk binary
+*.jar binary
+*.png binary
+*.jpg binary
+*.webp binary
+*.keystore binary

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    图标背景色。
+
+    刻意用独立常量而不是直接复用 @color/md_primary ——
+    md_primary 在深色模式下会翻成浅色（见 values-night/colors.xml），
+    而桌面图标不该跟随系统深浅色变化，否则深色模式下会变成白底白图。
+
+    取值 = M3 blue seed 的 primary(#415F91)，与 App 主题同源，视觉统一。
+-->
+<resources>
+    <color name="ic_launcher_background">#415F91</color>
+</resources>

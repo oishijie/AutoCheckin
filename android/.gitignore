@@ -1,0 +1,19 @@
+# Gradle / Android
+local.properties
+.gradle/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# 构建日志（PowerShell *> 重定向产出，UTF-16LE）
+build.log
+
+# IDE
+.idea/
+*.iml
+*.hprof
+
+# 系统
+.DS_Store
+Thumbs.db

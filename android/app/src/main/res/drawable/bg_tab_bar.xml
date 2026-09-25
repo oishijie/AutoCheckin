@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    底部 Tab 栏底：surface_container 实心 + 顶边 1px 描边。
+    M3 的 Navigation Bar 本不带分割线，但这里页面内容会滚动到它下方，
+    有这一条细线，内容「被裁掉」的感觉才明确。
+    颜色用 outline_variant（最淡的一档），不抢内容。
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/md_surface_container" />
+        </shape>
+    </item>
+
+    <item
+        android:height="1dp"
+        android:gravity="top">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/md_outline_variant" />
+        </shape>
+    </item>
+
+</layer-list>
