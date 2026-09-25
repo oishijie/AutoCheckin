@@ -38,13 +38,13 @@ class CheckinAccessibilityService : AccessibilityService() {
         val isReady: Boolean get() = instance != null
 
         /**
-         * 签到页卡住时，「BACK 退回 → 重新点开卡片」的最大重试次数。
+         * 每一组里，先试几次「BACK 退回 → 重新点开卡片」。
          *
-         * 用户 2026-09-25 的意见：别急着下"救不回来"的结论，
-         * 就一遍遍 BACK + 重点卡片，直到加载出来为止 —— 事实是这么试常常真能成。
-         * 所以次数给得比较宽，真正的兜底是外层整轮重试。
+         * 用户 2026-09-25 拍定 3 次。理由：别急着下"救不回来"的结论 ——
+         * 多数「加载中」BACK 重进一两次就出来了，而这个动作便宜（一轮约 7 秒）。
+         * 试满之后再上进程级冷启动（见 [COLD_GROUPS]）。
          */
-        private const val PAGE_RECOVER_TRIES = 8
+        private const val BACK_TRIES_PER_GROUP = 3
 
         /**
          * 重进后单次等待时长（毫秒）。
@@ -56,13 +56,21 @@ class CheckinAccessibilityService : AccessibilityService() {
         private const val RETRY_WAIT_MS = 6000L
 
         /**
-         * 先按「BACK 退回 + 重新点开卡片」试几轮，还是不行就升级到进程级冷启动。
+         * 「BACK × [BACK_TRIES_PER_GROUP] → 进程级冷启动」这个【组】重复几遍。
          *
-         * 为什么不一上来就冷启动：冷启动要回桌面、杀进程、重走 deeplink，
-         * 一轮十几秒；而多数「加载中」其实 BACK 重进一两次就出来了（用户真机结论）。
-         * 所以前几轮用便宜的手段，贵的手段留给真正卡死的场景。
+         * 顺序由用户 2026-09-25 拍定：每一组都必须先把 BACK 试满，才允许冷启动；
+         * **任何检测都不许短路这个顺序**（health-wx 只作日志提示，见调用处）。
+         *
+         * 为什么只给 2 组：第 1 组失败通常是页面 / 网络慢，第 2 组刚重置过、还有机会；
+         * 到第 3 组还不行，基本可判定【不是重进能解决】的问题了（网络断、
+         * 签到窗口没开、deeplink 凭证过期），再耗一组只是把失败时间往后推 ——
+         * 那种情况交给外层整轮重来更值（它会重走 deeplink、从头完整来一遍）。
+         *
+         * 耗时账（全失败路径）：单次 BACK 重进 ≈ 7 秒、单次冷启动 ≈ 30 秒，
+         * 一组 ≈ 51 秒，2 组 ≈ 102 秒；再乘外层 4 轮 ≈ 6.8 分钟。
+         * 成功路径不吃这个亏 —— 第一次 BACK 就成的话 7 秒就结束。
          */
-        private const val COLD_RESET_AFTER = 3
+        private const val COLD_GROUPS = 2
 
         /**
          * 冷启动后的等待时长。
@@ -485,54 +493,77 @@ class CheckinAccessibilityService : AccessibilityService() {
                     //   而这里的「BACK 退回 + 重新点开卡片」是【页面级容错】，
                     //   必须给足 —— 签到页卡「加载中」是常态，实测往往要重进
                     //   一两次才出来，只给 1 次等于提前宣布失败。
-                    for (tryIdx in 1..PAGE_RECOVER_TRIES) {
-                        val dead = StepEngine.isH5Dead(this)
-
-                        // ★ 进程级冷启动：页面级容错用尽，或认出 health-wx 死状态时启用。
-                        //
-                        //   health-wx 是【WebView 实例级】的死状态（真机实测不会自愈），
-                        //   BACK 重进打开的永远是同一个死掉的实例，跑满 8 次也是白转。
-                        //   所以认出来就直接跳到冷启动，别再耗轮次。
-                        //   普通「慢加载」则先让便宜的 BACK 重进试几轮，再升级。
-                        if (dead || tryIdx > COLD_RESET_AFTER) {
-                            if (dead) {
-                                Logger.log(
-                                    this,
-                                    "   ⚠️ 识别到 health-wx 死状态：BACK 重进救不回同一个死 WebView"
-                                )
-                            }
-                            Logger.log(this, "   ⟳ 第 $tryIdx 次改用「进程级冷启动 + 重走入口」")
-                            coldRestartAndReenter(steps, i)
-                            node = awaitPageReady(step, COLD_RESTART_WAIT_MS)
-                            if (node != null) {
-                                Logger.log(this, "   ✓ 冷启动后加载成功（第 $tryIdx 次）")
-                                break
-                            }
-                            Logger.log(this, "   冷启动后仍未加载出来，继续下一轮")
-                            continue
-                        }
-
+                    //
+                    // ── 以下是重进策略本体 ──
+                    //
+                    // 「BACK 重进」与「进程级冷启动」交替成组，顺序由用户 2026-09-25 拍定：
+                    //
+                    //   第 1 组：BACK × 3（各等 6 秒）→ 仍不出现 → 冷启动一次
+                    //   第 2 组：BACK × 3（各等 6 秒）→ 仍不出现 → 冷启动一次
+                    //
+                    // 为什么两者交替而不是择一：它们治的是【不同的卡死】。
+                    //   · BACK 重进便宜（约 7 秒），治页面懒加载慢 —— 多数一两次就成；
+                    //   · 冷启动贵（约 30 秒），治 WebView【实例】级死锁 —— 进程不死，
+                    //     重新点卡片打开的就是同一个坏实例，BACK 跑多少轮都是空转。
+                    // 冷启动之后再补一组 BACK 也不算重复劳动：那时页面刚被重置、又没
+                    // 加载出来，正是重新触发加载最值得一试的窗口期。
+                    //
+                    // ⚠️ 这个顺序【不许被任何检测短路】。health-wx 死状态只提示、
+                    //    不改变流程 —— 早期版本检测到它就直奔冷启动，等于把用户要求的
+                    //    「先试满 BACK」整段跳过（注释写着"不中断"，代码却在中断）。
+                    if (StepEngine.isH5Dead(this)) {
                         Logger.log(
                             this,
-                            "   本页重进（第 $tryIdx/$PAGE_RECOVER_TRIES 次）：BACK 退回后重新点开卡片"
+                            "   ⚠️ 当前是 health-wx 死状态（多半点过刷新）：BACK 重进多半救不回同" +
+                                "一个死 WebView，但仍按顺序把 $BACK_TRIES_PER_GROUP 次试满"
                         )
-                        if (!recoverFromStuckCard(steps, i)) {
-                            // ⚠️ 这里【不能 break】。
-                            //
-                            //   找不到卡片往往只是「H5 里还压着一层没退干净」，
-                            //   下一轮 recoverFromStuckCard 会先 BACK 再找，多半就好了。
-                            //   之前一 break 等于「页面状态稍乱就一次都不多试」，
-                            //   和用户「一直 BACK 再点，直到加载成功」的思路相悖 ——
-                            //   真机反馈的「一遍就停住」有这部分原因。
-                            Logger.log(this, "   退回后暂未见卡片，下一轮再退一层试试")
-                            continue
+                    }
+                    recoverLoop@ for (group in 1..COLD_GROUPS) {
+                        for (tryIdx in 1..BACK_TRIES_PER_GROUP) {
+                            Logger.log(
+                                this,
+                                "   第 $group/$COLD_GROUPS 组 · BACK 重进（第 $tryIdx/" +
+                                    "$BACK_TRIES_PER_GROUP 次）：BACK 退回后重新点开卡片"
+                            )
+                            if (!recoverFromStuckCard(steps, i)) {
+                                // ⚠️ 这里【不能 break】。
+                                //
+                                //   找不到卡片往往只是「H5 里还压着一层没退干净」，
+                                //   下一轮 recoverFromStuckCard 会先 BACK 再找，多半就好了。
+                                //   之前一 break 等于「页面状态稍乱就一次都不多试」，
+                                //   和用户「一直 BACK 再点，直到加载成功」的思路相悖 ——
+                                //   真机反馈的「一遍就停住」有这部分原因。
+                                Logger.log(this, "   退回后暂未见卡片，下一轮再退一层试试")
+                                continue
+                            }
+                            // 重进后是热缓存，等待短一些
+                            node = awaitPageReady(step, RETRY_WAIT_MS)
+                            if (node != null) {
+                                Logger.log(
+                                    this,
+                                    "   ✓ 第 $group 组第 $tryIdx 次 BACK 重进后加载成功"
+                                )
+                                break@recoverLoop
+                            }
                         }
-                        // 重进后是热缓存，等待短一些
-                        node = awaitPageReady(step, RETRY_WAIT_MS)
+
+                        // 本组 BACK 试满仍未出现 → 升级为进程级冷启动
+                        Logger.log(
+                            this,
+                            "   ⟳ 第 $group 组：BACK 重进 $BACK_TRIES_PER_GROUP 次均无效，" +
+                                "改用「进程级冷启动 + 重走入口」"
+                        )
+                        coldRestartAndReenter(steps, i)
+                        node = awaitPageReady(step, COLD_RESTART_WAIT_MS)
                         if (node != null) {
-                            Logger.log(this, "   ✓ 第 $tryIdx 次重进后加载成功")
-                            break
+                            Logger.log(this, "   ✓ 第 $group 组冷启动后加载成功")
+                            break@recoverLoop
                         }
+                        Logger.log(
+                            this,
+                            "   第 $group 组冷启动后仍未加载出来" +
+                                (if (group < COLD_GROUPS) "，进入下一组" else "，本页兜底已用尽")
+                        )
                     }
                 }
                 if (node != null) {
