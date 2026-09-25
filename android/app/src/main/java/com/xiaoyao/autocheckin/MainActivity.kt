@@ -112,10 +112,11 @@ class MainActivity : Activity() {
         }
 
         // 权限引导：定时签到必须在【后台】启动 deeplink，缺悬浮窗权限会被系统拦掉。
-        // 无 UI 触发（adb runNow / testRecover / onceIn）时不弹，避免打断自动化。
+        // 无 UI 触发（adb runNow / testRecover / onceIn ...）时不弹，避免打断自动化。
         if (intent?.getBooleanExtra("runNow", false) != true &&
             intent?.getBooleanExtra("testRecover", false) != true &&
             intent?.getBooleanExtra("coldReset", false) != true &&
+            intent?.getBooleanExtra("testSubmit", false) != true &&
             intent?.getBooleanExtra("resetSteps", false) != true &&
             (intent?.getIntExtra("onceIn", 0) ?: 0) <= 0
         ) {
@@ -126,6 +127,7 @@ class MainActivity : Activity() {
         //   adb shell am start -n com.xiaoyao.autocheckin/.MainActivity --ez runNow true
         //   adb shell am start -n com.xiaoyao.autocheckin/.MainActivity --ez testRecover true
         //   adb shell am start -n com.xiaoyao.autocheckin/.MainActivity --ez coldReset true
+        //   adb shell am start -n com.xiaoyao.autocheckin/.MainActivity --ez testSubmit true
         //   adb shell am start -n com.xiaoyao.autocheckin/.MainActivity --ei onceIn 60
         //     ↑ 模拟定时：N 秒后经 AlarmManager 触发，真正复现「后台 + 熄屏」现场
         maybeRunNow(intent)
@@ -157,6 +159,7 @@ class MainActivity : Activity() {
         val wantProbe = from?.getBooleanExtra("probeWindow", false) == true
         val wantShutter = from?.getBooleanExtra("testShutter", false) == true
         val wantColdReset = from?.getBooleanExtra("coldReset", false) == true
+        val wantSubmit = from?.getBooleanExtra("testSubmit", false) == true
         val backFirst = from?.getBooleanExtra("backFirst", false) == true
         val onceIn = from?.getIntExtra("onceIn", 0) ?: 0
 
@@ -188,7 +191,9 @@ class MainActivity : Activity() {
             return
         }
 
-        if (!wantRun && !wantRecover && !wantProbe && !wantShutter && !wantColdReset) return
+        if (!wantRun && !wantRecover && !wantProbe && !wantShutter && !wantColdReset &&
+            !wantSubmit
+        ) return
 
         var waited = 0
         val probe = object : Runnable {
@@ -223,6 +228,12 @@ class MainActivity : Activity() {
                 // 冷启动测试：回桌面 → 清掉目标 App 进程 → 从入口重进
                 if (wantColdReset) {
                     svc.testColdReset()
+                    return
+                }
+
+                // 提交按钮探针：只探「提交签到」这一个节点，不跑任何其他步骤
+                if (wantSubmit) {
+                    svc.testSubmit()
                     return
                 }
 

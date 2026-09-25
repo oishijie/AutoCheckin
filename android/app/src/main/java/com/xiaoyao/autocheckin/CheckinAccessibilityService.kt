@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.app.ActivityManager
 import android.app.KeyguardManager
 import android.content.Intent
+import android.graphics.Rect
 import android.net.Uri
 import android.os.PowerManager
 import android.view.accessibility.AccessibilityEvent
@@ -272,6 +273,85 @@ class CheckinAccessibilityService : AccessibilityService() {
     }
 
     /**
+     * 单项测试：探「提交签到」按钮 —— 最后一步的可点击性验证。
+     *
+     * 为什么需要单独探：签到流程的终点是点「提交签到」，而它和快门一样是
+     * **H5 里的元素**，光看代码判断不了它到底可不可点。实测（2026-09-25）：
+     * 它是个 android.widget.Button，clickable=true、enabled=true、
+     * bounds=[69,2278][1011,2374]（942x96）、visibleToUser=true —— 渲染正常，
+     * 只是因为贴屏幕最底部而**不可能用坐标点**（见下方判读说明）。
+     *
+     * ⚠️ 别用 `uiautomator dump` 判断它有没有渲染：实测它会把同一个按钮
+     *    报成 bounds=[0,0][0,0]（工具对 WebView 虚拟节点的上报缺陷）。
+     *
+     * 触发（停在签到页即可，**不需要有照片**）：
+     *   adb shell am start -n com.xiaoyao.autocheckin/.MainActivity --ez testSubmit true
+     *
+     * 判读日志：
+     *   尺寸=942x96 / hasSize=true   ← 按钮渲染正常（期望）
+     *   click() 返回 true            ← 无障碍 ACTION_CLICK 已派发（实测约 4ms）
+     *   点击后 bounds 不变           ← 没照片时 H5 会静默拒绝，页面无变化，属正常
+     */
+    fun testSubmit() {
+        Thread {
+            Logger.log(this, "===== 提交按钮测试开始 =====")
+
+            // adb 是拉起 MainActivity 来触发的，此刻前台是本 App 自己。
+            // 不退到后台，抓到的是设置界面的节点树，探不到签到页。
+            var pkg = rootInActiveWindow?.packageName?.toString().orEmpty()
+            if (pkg == packageName) {
+                performGlobalAction(GLOBAL_ACTION_BACK)
+                Thread.sleep(2500)
+                pkg = rootInActiveWindow?.packageName?.toString().orEmpty()
+            }
+            Logger.log(this, "当前前台：${pkg.ifEmpty { "未知" }}")
+
+            // 用 viswait 的语义探 —— 要求【真的渲染出尺寸】，和步骤表 ⑩ 第一步完全一致。
+            // 这样这次测试跑的就是真实判定逻辑，不是另写一套。
+            val step = Step("viswait", "提交签到")
+            val node = StepEngine.awaitNode(this, step, 4000L, requireVisible = true)
+            if (node == null) {
+                Logger.log(this, "✗ 4 秒内没等到「提交签到」渲染出尺寸")
+                Logger.log(this, "   → 确认此刻停在签到页；若在别的页面，本步探测不到是正常的")
+                Logger.log(this, "===== 提交按钮测试结束 =====")
+                return@Thread
+            }
+
+            val r = Rect().also { node.getBoundsInScreen(it) }
+            Logger.log(
+                this,
+                "✓ 找到节点：class=${node.className} bounds=[${r.left},${r.top}]" +
+                    "[${r.right},${r.bottom}] 尺寸=${r.width()}x${r.height()}"
+            )
+            Logger.log(
+                this,
+                "   clickable=${node.isClickable} enabled=${node.isEnabled} " +
+                    "visibleToUser=${node.isVisibleToUser} hasSize=${StepEngine.hasSize(node)}"
+            )
+            if (!StepEngine.hasSize(node)) {
+                Logger.log(this, "⚠️ 尺寸为 0：节点在树上但没渲染 —— 这一步等下去也没意义")
+            }
+
+            val t0 = System.currentTimeMillis()
+            val ok = StepEngine.click(this, node)
+            Logger.log(this, "   click() 返回 $ok，耗时 ${System.currentTimeMillis() - t0}ms")
+            Thread.sleep(2000)
+
+            val after = StepEngine.awaitNode(this, step, 2500L, requireVisible = true)
+            if (after == null) {
+                Logger.log(this, "   点击后：「提交签到」节点已消失（页面发生了变化）")
+            } else {
+                val r2 = Rect().also { after.getBoundsInScreen(it) }
+                Logger.log(
+                    this,
+                    "   点击后：节点仍在，bounds=[${r2.left},${r2.top}][${r2.right},${r2.bottom}]"
+                )
+            }
+            Logger.log(this, "===== 提交按钮测试结束 =====")
+        }.start()
+    }
+
+    /**
      * 把当前窗口与节点树打进日志（同步执行）。
      *
      * @param why 触发原因，写进日志便于回溯
@@ -351,6 +431,14 @@ class CheckinAccessibilityService : AccessibilityService() {
             if (attempt > 1) Thread.sleep(3000)
             if (runOnce(steps, attempt)) {
                 Logger.log(this, "🎉 签到流程执行完毕")
+                // 全部步骤跑通后，把界面拍进日志。
+                //
+                // 为什么成功路径也要 dump（而不再只在失败时留现场）：
+                // 最后一步「提交签到」点下去「成功」并不等于【真的签上了】——
+                // 实测没照片时按钮照样可点，H5 会静默拒绝、页面纹丝不动。
+                // 提交成功后页面长什么样（「已签到」？按钮变灰？）目前无从得知，
+                // 只能靠第一次真实执行把现场记下来，之后才谈得上补校验。
+                dumpWindowsNow("流程全部跑通，记录提交后的界面（用于确认是否真的签上）")
                 return
             }
         }
@@ -473,7 +561,12 @@ class CheckinAccessibilityService : AccessibilityService() {
             // uiwait 是它的同胞（按字体图标码点等），区别在于：
             // uiwait 超时【不做】卡死恢复 —— 它等的是「照片回传完成」这类
             // 页面内部的状态变化，此时 BACK 退回列表再点卡片会把整条流程搞乱。
-            if (step.kind == "wait" || step.kind == "uniwait" || step.kind == "textwait") {
+            //
+            // viswait 是另一个同胞：按【文本】等，且要求节点真的占据屏幕区域。
+            // 它和 textwait 一样【不做】卡死恢复，区别只在多一道尺寸校验 —— 详见 awaitPageReady。
+            if (step.kind == "wait" || step.kind == "uniwait" ||
+                step.kind == "textwait" || step.kind == "viswait"
+            ) {
                 var node = awaitPageReady(step)
                 if (node == null && step.kind == "wait") {
                     // 一遍遍 BACK 退回 + 重新点开卡片，直到页面加载出来。
@@ -571,10 +664,13 @@ class CheckinAccessibilityService : AccessibilityService() {
                 } else {
                     Logger.log(
                         this,
-                        if (step.kind == "uniwait") {
-                            "   ✗ 仍未出现「${step.value}」，页面内部状态没变"
-                        } else {
-                            "   ✗ 仍未见「${step.value}」，本页重进与冷启动均无效"
+                        when (step.kind) {
+                            "uniwait" -> "   ✗ 仍未出现「${step.value}」，页面内部状态没变"
+                            // viswait 不参与卡死恢复：节点在树上、只是没渲染出尺寸，
+                            // 说明前置条件（通常就是照片回传）没满足，重进页面也不会有。
+                            "viswait" ->
+                                "   ✗ 「${step.value}」始终没渲染出尺寸（节点在树上但 bounds 为 0）"
+                            else -> "   ✗ 仍未见「${step.value}」，本页重进与冷启动均无效"
                         }
                     )
                     // 两级兜底都用尽了 —— 把此刻的界面拍进日志。
@@ -646,16 +742,29 @@ class CheckinAccessibilityService : AccessibilityService() {
         val slice = 2000L
         var waited = 0L
         while (waited < timeoutMs) {
-            // ⚠️ 只有 uiwait 才要求「真的渲染出来了」。
+            // ⚠️ 只有 uiwait / viswait 才要求「真的渲染出来了」。
+            //     · viswait：按【文本】等 —— 给「提交签到」这类中文按钮用的
+            //     · uiwait ：按【字体图标码点】等 —— 给「拍照 / 已上传缩略图」用的
             //
-            //   uiwait 等的是 H5 里可能尚未渲染的元素（如「提交签到」按钮，
-            //   它在照片上传完成前 bounds 恒为 [0,0][0,0]），必须判尺寸。
+            //   为什么单给这两个开：它们等的是 H5 内部的控件、且都出现在流程后段，
+            //   那时页面本就该就绪了，多判一次尺寸纯属防御（对 bounds 为 0 的节点
+            //   点下去可能是假动作，ACTION_CLICK 照样会返回 true）；代价几乎为零，
+            //   真渲染好了立刻通过。
             //
-            //   而普通 wait 等的是原生文案节点（如签到页的「签到要求」），
+            //   而普通 wait 等的是页面文案节点（如签到页的「签到要求」），
             //   它天然有 bounds；若这里也强判尺寸，页面慢加载期间节点
             //   刚好没布局好就会被自己挡掉 —— v1.9/v2.0 就是这么把
             //   本来能成的步骤判死的。
-            val node = StepEngine.awaitNode(this, step, slice, requireVisible = step.kind == "uniwait")
+            //
+            //   ⚠️ 判断「节点是不是 0×0」不要用 `uiautomator dump`：它对 WebView
+            //      虚拟节点的上报有缺陷，会把渲染正常的按钮报成 0×0（2026-09-25 踩过，
+            //      详见 StepEngine.hasSize 上方的说明）。
+            val node = StepEngine.awaitNode(
+                this,
+                step,
+                slice,
+                requireVisible = step.kind == "uniwait" || step.kind == "viswait"
+            )
             if (node != null) return node
             waited += slice
         }

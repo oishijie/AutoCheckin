@@ -32,11 +32,15 @@ object StepEngine {
      *
      * @param requireVisible 是否要求节点【真的占据屏幕区域】。
      *
-     * H5（WebView）里的 DOM 元素会被挂进无障碍树，但**没渲染出来的元素
-     * bounds 是 [0,0][0,0]**。真机实测（2026-09-25）：签到页加载完成前，
-     * 「提交签到」按钮就已经能被找到，只是宽高为 0 ——
-     * 这时候「找到了」并不等于「能用」，等待类步骤必须再判一次尺寸，
-     * 否则会在按钮还没渲染出来时就宣布"已出现"，下一步点击必然落空。
+     * H5（WebView）里的元素会被挂进无障碍树，理论上存在「挂上了但还没渲染完」
+     * 的中间态（bounds 为 [0,0][0,0]）。viswait / uiwait 这类工具型等待会打开
+     * 这个开关，把这种节点排除掉 —— 对未渲染的节点谈「找到了」没有意义。
+     *
+     * ⚠️ 判据只认【无障碍服务读到的 bounds】。**别拿 `uiautomator dump` 的结果
+     *    下结论**：它对 WebView 虚拟节点的上报有缺陷 —— 2026-09-25 实测，
+     *    一个明明渲染在屏幕底部、显示为可点蓝色的「提交签到」按钮
+     *    （无障碍服务读到 [69,2278][1011,2374] 942x96），
+     *    uiautomator dump 却报成 [0,0][0,0]。截屏核对后才确认是工具假象。
      */
     fun awaitNode(
         svc: AccessibilityService,
@@ -128,9 +132,9 @@ object StepEngine {
                 val d = node.contentDescription?.toString() ?: return false
                 if (step.contains) d.contains(step.value) else d == step.value
             }
-            // wait / text / textwait 同源：match 规则一致，区别只在于
-            // 「等超时之后怎么办」—— 那部分在 Service 里，不在匹配层。
-            "wait", "text", "textwait" -> {
+            // wait / text / textwait / viswait 同源：match 规则一致，区别只在于
+            // 「等超时之后怎么办」和「要不要判尺寸」—— 那部分在 Service 里，不在匹配层。
+            "wait", "text", "textwait", "viswait" -> {
                 val t = node.text?.toString() ?: return false
                 if (step.contains) t.contains(step.value) else t == step.value
             }
@@ -215,6 +219,21 @@ object StepEngine {
      *    尽量远离屏幕底边的手势区。
      */
     fun click(svc: AccessibilityService, node: AccessibilityNodeInfo): Boolean {
+        // ⚠️ 未渲染的节点（bounds 为 [0,0][0,0]）一律不点。
+        //
+        // 对 0×0 节点派发 ACTION_CLICK 是【最坏的情况】：无障碍框架不校验节点尺寸，
+        // 可能照样返回 true，于是日志打出「✓ 已点击」、屏幕上却什么都没发生 —— 假阳性。
+        // 签到这种事必须确认真的点下去了，宁可明确失败、由上层重试。
+        //
+        // 这是【防御性】检查，正常流程不会触发：2026-09-25 实测过签到页的
+        // 「提交签到」按钮，无障碍服务读到的一直是 [69,2278][1011,2374]（942x96）、
+        // visibleToUser=true，截屏核对也确认它就好好地渲染在屏幕底部。
+        // （当时一度以为它是 0×0，那是 uiautomator dump 的误报，详见 hasSize 上方注释。）
+        if (!hasSize(node)) {
+            Logger.log(svc, "   · 目标控件尺寸为 0（疑似未渲染），放弃点击以免假阳性")
+            return false
+        }
+
         var cur: AccessibilityNodeInfo? = node
         var depth = 0
         while (cur != null && depth < 8) {
