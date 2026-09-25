@@ -13,8 +13,8 @@ android {
         targetSdk = 34
         // 与 GitHub Release 的 tag 对齐（v2.9）。关于页的「检查更新」拿 versionName 比大小，
         // 每发一版记得同时抬这两个值，否则新包会被判成「已是最新」。
-        versionCode = 30
-        versionName = "2.10"
+        versionCode = 31
+        versionName = "2.11"
     }
 
     buildTypes {

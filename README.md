@@ -1,4 +1,4 @@
-# AutoCheckin · 晚归自动签到
+# FAFU签到
 
 > 到点自动走完学校「晚归签到」：进签到页 → 重新定位 → 拍照 → 回传。全程无人值守。
 
@@ -24,7 +24,7 @@
 
 ## 安装
 
-从 [Releases](https://github.com/oishijie/AutoCheckin/releases/latest) 下载 `AutoCheckin-vX.Y-release.apk` 装到手机（Android 8.0+）。
+从 [Releases](https://github.com/oishijie/AutoCheckin/releases/latest) 下载 `FAFU-Checkin-vX.Y.apk` 装到手机（Android 8.0+）。
 
 首次使用三步：
 

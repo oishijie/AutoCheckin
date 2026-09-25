@@ -51,7 +51,7 @@
                     style="@style/TitleText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="自动签到" />
+                    android:text="FAFU签到" />
 
                 <TextView
                     style="@style/SubtitleText"
@@ -485,7 +485,7 @@
                     style="@style/TitleText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="自动签到" />
+                    android:text="FAFU签到" />
 
                 <TextView
                     android:id="@+id/tvVersion"

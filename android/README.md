@@ -1,4 +1,4 @@
-# AutoCheckin · 自研 Android 版
+# FAFU签到 · 自研 Android 版
 
 > 纯自研、零第三方依赖、免 root 的无障碍签到 App。
 > 包名 `com.xiaoyao.autocheckin`，代码 725 行 Kotlin，不引用任何 androidx 组件。
@@ -110,7 +110,7 @@ adb install -r app/build/outputs/apk/release/app-release.apk
 
 ## 四、首次配置
 
-1. 打开 App → 点 **① 去开启无障碍服务** → 在系统列表里找到「自动签到」→ 开启
+1. 打开 App → 点 **① 去开启无障碍服务** → 在系统列表里找到「FAFU签到」→ 开启
 2. 回到 App，状态栏应变成 **✅ 已开启**
 3. 填 **② 签到入口链接**（你的 intent 链接，原样粘贴）
 4. 填 **④ 点击步骤表**（见下一节）

@@ -922,7 +922,7 @@ class CheckinAccessibilityService : AccessibilityService() {
                     this,
                     "$label 跳转未生效（取不到前台窗口）—— App 在后台时这是被 " +
                         "「后台启动 Activity」拦下的典型症状。豁免探针生效=${OverlayProbe.active}；" +
-                        "若为 false，请到 设置 → 应用 → 自动签到 → 显示在其他应用上层 打开开关"
+                        "若为 false，请到 设置 → 应用 → FAFU签到 → 显示在其他应用上层 打开开关"
                 )
                 continue
             }

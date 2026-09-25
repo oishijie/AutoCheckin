@@ -107,7 +107,7 @@ object OverlayProbe {
             active = false
             // 最常见原因：悬浮窗权限没给。addView 会抛 BadTokenException / SecurityException。
             Logger.log(ctx, "⚠️ 探针挂载失败（${t.javaClass.simpleName}）：${t.message}")
-            Logger.log(ctx, "   → 定时签到会因此打不开目标 App，请到「设置 → 应用 → 自动签到 → 显示在其他应用上层」手动打开")
+            Logger.log(ctx, "   → 定时签到会因此打不开目标 App，请到「设置 → 应用 → FAFU签到 → 显示在其他应用上层」手动打开")
             false
         }
     }
