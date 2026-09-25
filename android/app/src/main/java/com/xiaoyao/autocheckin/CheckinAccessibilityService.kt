@@ -1,6 +1,7 @@
 package com.xiaoyao.autocheckin
 
 import android.accessibilityservice.AccessibilityService
+import android.app.ActivityManager
 import android.app.KeyguardManager
 import android.content.Intent
 import android.net.Uri
@@ -53,6 +54,24 @@ class CheckinAccessibilityService : AccessibilityService() {
          * 多轮几次，反馈更快，整体耗时也未必更长。
          */
         private const val RETRY_WAIT_MS = 6000L
+
+        /**
+         * 先按「BACK 退回 + 重新点开卡片」试几轮，还是不行就升级到进程级冷启动。
+         *
+         * 为什么不一上来就冷启动：冷启动要回桌面、杀进程、重走 deeplink，
+         * 一轮十几秒；而多数「加载中」其实 BACK 重进一两次就出来了（用户真机结论）。
+         * 所以前几轮用便宜的手段，贵的手段留给真正卡死的场景。
+         */
+        private const val COLD_RESET_AFTER = 3
+
+        /**
+         * 冷启动后的等待时长。
+         *
+         * 比热缓存重进（[RETRY_WAIT_MS]）长得多，因为它是一次【全新进程】的
+         * 冷加载：目标 App 要重新初始化、WebView 内核要重新起、H5 资源要重新拉。
+         * 实测冷启动能到 20 秒，给短了会把本来能成的流程误判成失败。
+         */
+        private const val COLD_RESTART_WAIT_MS = 20000L
     }
 
     override fun onServiceConnected() {
@@ -155,6 +174,41 @@ class CheckinAccessibilityService : AccessibilityService() {
                 Logger.log(this, if (ok) "✅ 恢复动作完成" else "❌ 恢复动作失败")
             } catch (t: Throwable) {
                 Logger.log(this, "恢复演练异常: ${t.message}")
+            } finally {
+                running.set(false)
+            }
+        }.start()
+    }
+
+    /**
+     * 单项测试：进程级冷启动兜底。
+     *
+     * 用途：验证「页面级 BACK 重进救不回来时，杀进程能不能救」。
+     * 只要此刻停在卡住的签到页上，跑这一条就能看到完整的冷启动链路，
+     * 不必跑整条流程、也不必蹲那个概率性的卡死现场。
+     *
+     * 触发：
+     *   adb shell am start -n com.xiaoyao.autocheckin/.MainActivity --ez coldReset true
+     *
+     * 判读日志：
+     *   已清掉 <目标包名> 进程              ← 杀进程成功
+     *   ⚠️ <目标包名> 仍在运行              ← ROM 拦了请求，这条路走不通
+     *   已从入口重进（直达通知中心=…）        ← deeplink 重新拉起成功
+     */
+    fun testColdReset() {
+        if (!running.compareAndSet(false, true)) {
+            Logger.log(this, "已有任务在执行，忽略本次冷启动测试")
+            return
+        }
+        Thread {
+            try {
+                Logger.log(this, "===== 单项测试：进程级冷启动 =====")
+                val ok = hardResetTargetApp("单项测试")
+                Logger.log(this, if (ok) "✅ 目标 App 进程已清掉" else "❌ 未能确认清掉进程（见上方告警）")
+                val direct = launchEntry()
+                Logger.log(this, "已从入口重进（直达通知中心=$direct）")
+            } catch (t: Throwable) {
+                Logger.log(this, "冷启动测试异常: ${t.message}")
             } finally {
                 running.set(false)
             }
@@ -303,15 +357,13 @@ class CheckinAccessibilityService : AccessibilityService() {
     }
 
     private fun runOnce(steps: List<Step>, attempt: Int): Boolean {
-        // 重试前先退回干净状态。
-        // 签到页（H5）偶发卡在「加载中…」不动，停在那一页重发 deeplink 是无效的，
-        // 必须先把目标 App 退掉，再从入口完整走一遍。
+        // 重试前先把目标 App 真正做掉，再从入口完整走一遍。
+        //
+        // ⚠️ 这里以前只按 4 次返回键，注释却写着「退出目标 App」—— 返回键退不掉
+        //    进程，H5 的 WebView 实例照旧被复用，卡死的页面下一轮还是那张脸，
+        //    「退出重来」名存实亡。现在换成进程级冷启动，才真的是从零开始。
         if (attempt > 1) {
-            Logger.log(this, "回收现场：退出目标 App 后重来")
-            repeat(4) {
-                performGlobalAction(GLOBAL_ACTION_BACK)
-                Thread.sleep(700)
-            }
+            hardResetTargetApp("整轮重来前的现场回收")
         }
 
         wakeScreen()
@@ -434,9 +486,32 @@ class CheckinAccessibilityService : AccessibilityService() {
                     //   必须给足 —— 签到页卡「加载中」是常态，实测往往要重进
                     //   一两次才出来，只给 1 次等于提前宣布失败。
                     for (tryIdx in 1..PAGE_RECOVER_TRIES) {
-                        if (StepEngine.isH5Dead(this)) {
-                            Logger.log(this, "   ⚠️ 当前是 health-wx 死状态（多半点过刷新），重进可能无效")
+                        val dead = StepEngine.isH5Dead(this)
+
+                        // ★ 进程级冷启动：页面级容错用尽，或认出 health-wx 死状态时启用。
+                        //
+                        //   health-wx 是【WebView 实例级】的死状态（真机实测不会自愈），
+                        //   BACK 重进打开的永远是同一个死掉的实例，跑满 8 次也是白转。
+                        //   所以认出来就直接跳到冷启动，别再耗轮次。
+                        //   普通「慢加载」则先让便宜的 BACK 重进试几轮，再升级。
+                        if (dead || tryIdx > COLD_RESET_AFTER) {
+                            if (dead) {
+                                Logger.log(
+                                    this,
+                                    "   ⚠️ 识别到 health-wx 死状态：BACK 重进救不回同一个死 WebView"
+                                )
+                            }
+                            Logger.log(this, "   ⟳ 第 $tryIdx 次改用「进程级冷启动 + 重走入口」")
+                            coldRestartAndReenter(steps, i)
+                            node = awaitPageReady(step, COLD_RESTART_WAIT_MS)
+                            if (node != null) {
+                                Logger.log(this, "   ✓ 冷启动后加载成功（第 $tryIdx 次）")
+                                break
+                            }
+                            Logger.log(this, "   冷启动后仍未加载出来，继续下一轮")
+                            continue
                         }
+
                         Logger.log(
                             this,
                             "   本页重进（第 $tryIdx/$PAGE_RECOVER_TRIES 次）：BACK 退回后重新点开卡片"
@@ -468,9 +543,13 @@ class CheckinAccessibilityService : AccessibilityService() {
                         if (step.kind == "uniwait") {
                             "   ✗ 仍未出现「${step.value}」，页面内部状态没变"
                         } else {
-                            "   ✗ 仍未见「${step.value}」，本页重进无效"
+                            "   ✗ 仍未见「${step.value}」，本页重进与冷启动均无效"
                         }
                     )
+                    // 两级兜底都用尽了 —— 把此刻的界面拍进日志。
+                    // 否则回头只看到一句「仍未见」，屏幕上是哪一屏、是加载中还是报错页
+                    // 全都无从判断，白瞎一次现场。
+                    dumpWindowsNow("wait=${step.value} 重进与冷启动均未就绪")
                     if (!step.optional) return false
                 }
                 Thread.sleep(300)
@@ -592,17 +671,8 @@ class CheckinAccessibilityService : AccessibilityService() {
      */
     private fun recoverFromStuckCard(steps: List<Step>, waitIndex: Int): Boolean {
         // 取「打开签到页」那一步：锚定到【第一个 wait 之前】最后一条点击类步骤。
-        //
-        // ⚠️ 不能用 take(waitIndex)。步骤表里 wait 不止一个 ——
-        //    有「签到要求」（签到页加载完）、还有「进入签到要求范围」（定位完成）。
-        //    若按当前 waitIndex 截断，遇到【第二个 wait】失败时，取到的会是
-        //    「重新定位」这种【签到页内部】的按钮；BACK 退回列表后当然找不到它，
-        //    重进必然失败 —— 表现就是「退出去以后就再也回不来了」。
-        //    锚到第一个 wait 才是对的：它之前最后一步就是「点开签到卡片」。
-        val firstWait = steps.indexOfFirst {
-            it.kind == "wait" || it.kind == "uniwait" || it.kind == "textwait"
-        }
-        val limit = if (firstWait >= 0) firstWait else waitIndex
+        // 判据抽在 firstWaitIndex() 里，冷启动重进共用同一套逻辑，避免两处走岔。
+        val limit = firstWaitIndex(steps, waitIndex)
         val before = steps.take(limit).filter {
             it.kind == "id" || it.kind == "text" || it.kind == "desc"
         }
@@ -638,6 +708,126 @@ class CheckinAccessibilityService : AccessibilityService() {
         Logger.log(this, "   已重新点开卡片，重新等待页面加载")
         Thread.sleep(800)
         return true
+    }
+
+    /**
+     * 进程级冷启动：把目标 App 真正做掉，而不是一路按返回键。
+     *
+     * 为什么非它不可：签到页是 H5，「加载中」卡死和 health-wx 死状态都发生在
+     * WebView **实例**内部。只要进程还活着，重新点卡片打开的就是同一个实例 ——
+     * 页面级 BACK 重进跑 8 次、外层整轮重来再跑 3 轮，全是空转。
+     * 唯有让进程死掉，下次 deeplink 才会拉起一个干净的 WebView。
+     *
+     * 三步走：
+     *   ① 先回桌面。killBackgroundProcesses 只能杀【后台】进程，
+     *      目标 App 还在前台时调用等于空转（系统直接忽略）。
+     *   ② 杀后台进程。
+     *   ③ 回读前台窗口验证。部分 ROM 会拦这条请求，所以不假装成功 ——
+     *      杀没杀掉如实写进日志。
+     *
+     * 权限：KILL_BACKGROUND_PROCESSES 是 normal 级，普通应用声明即可。
+     *
+     * @return 是否确认已清掉目标进程（返回 false 不代表流程终止，调用方照旧往下走）
+     */
+    private fun hardResetTargetApp(reason: String): Boolean {
+        val pkg = ConfigStore.targetPkg(this)
+        if (pkg.isEmpty()) {
+            Logger.log(this, "   ⚠️ 未配置目标包名，跳过进程级重启（$reason）")
+            return false
+        }
+        Logger.log(this, "   ⟳ 进程级冷启动：$reason")
+
+        // ① 回桌面 —— 目标 App 必须退到后台，杀进程请求才会被系统受理
+        performGlobalAction(GLOBAL_ACTION_HOME)
+        Thread.sleep(1500)
+
+        // ② 杀进程。WebView 实例随进程一起消失，下次进来才是干净的
+        try {
+            val am = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+            am.killBackgroundProcesses(pkg)
+        } catch (t: Throwable) {
+            Logger.log(this, "   ✗ 杀进程请求失败：${t.message}（继续按原路重来）")
+            return false
+        }
+
+        Thread.sleep(2500)
+
+        // ③ 验证：还在前台说明没杀掉
+        val now = rootInActiveWindow?.packageName?.toString().orEmpty()
+        if (now == pkg) {
+            Logger.log(this, "   ⚠️ $pkg 仍在运行，系统可能拦截了杀进程请求")
+            return false
+        }
+        Logger.log(this, "   ✓ 已清掉 $pkg 进程（当前前台：${now.ifEmpty { "未知" }}）")
+        return true
+    }
+
+    /**
+     * 冷启动后重新回到签到页。
+     *
+     * 进程被杀 → App 回到桌面 → 必须从 deeplink 重新进 App，再把
+     * 「切 Tab / 滚动 / 点卡片」这些前置动作重放一遍，才能回到签到页。
+     * runOnce 里本来也有这套动作，但那是「从零开始」的语境；
+     * 这里是【流程中途折返】，得一比一复刻同样的路子才能落回同一个位置。
+     *
+     * 只回放能改变页面位置的步骤（tab / scroll / 点击），
+     * sleep 和 wait 一律跳过 —— 它们是给「第一次进入」排的节奏，
+     * 这里只需要尽快把界面挪回签到页。
+     */
+    private fun coldRestartAndReenter(steps: List<Step>, waitIndex: Int) {
+        hardResetTargetApp("页面级重进无效，改用冷启动")
+
+        val direct = launchEntry()
+
+        // 冷启动是全新进程：App 启动 + WebView 内核初始化 + H5 首屏，
+        // 比热缓存重进慢得多。先等目标 App 真的回到前台再往下走，
+        // 否则后面的前置步骤全是对着桌面空点。
+        val pkg = ConfigStore.targetPkg(this)
+        var waited = 0
+        while (waited < 15000) {
+            val now = rootInActiveWindow?.packageName?.toString().orEmpty()
+            if (pkg.isEmpty() || now == pkg) break
+            Thread.sleep(1000)
+            waited += 1000
+        }
+        Thread.sleep(3000)
+
+        val limit = firstWaitIndex(steps, waitIndex)
+        for (s in steps.take(limit)) {
+            when (s.kind) {
+                // 入口已直达通知中心时，切 Tab 反而是把界面切走的多余动作
+                "tab" -> {
+                    if (direct) continue
+                    StepEngine.awaitNode(this, s, 4000)?.let { StepEngine.click(this, it) }
+                    Thread.sleep(900)
+                }
+                "scroll" -> {
+                    StepEngine.scrollToBottom(this, s.value)
+                    Thread.sleep(700)
+                }
+                "id", "text", "desc", "cls", "uni" -> {
+                    StepEngine.awaitNode(this, s, 5000)?.let { StepEngine.click(this, it) }
+                    Thread.sleep(900)
+                }
+                else -> Unit
+            }
+        }
+        Logger.log(this, "   已重走入口与前置步骤，回到签到页")
+    }
+
+    /**
+     * 取「打开签到页」那一步的下标 —— 即第一个等待步骤的位置。
+     *
+     * ⚠️ 不能用调用方传来的当前下标截断：步骤表里等待步骤不止一个
+     *    （「签到要求」是签到页加载完、「已经进入签到要求范围」是定位完成），
+     *    按第二个截断会把「重新定位」这种【签到页内部】按钮算进来 ——
+     *    退回列表后当然找不到它，表现就是「退出去就再也回不来」。
+     */
+    private fun firstWaitIndex(steps: List<Step>, fallback: Int): Int {
+        val i = steps.indexOfFirst {
+            it.kind == "wait" || it.kind == "uniwait" || it.kind == "textwait"
+        }
+        return if (i >= 0) i else fallback
     }
 
     /**

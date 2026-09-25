@@ -4,6 +4,17 @@
     <!-- 关于页「检查更新」：读 GitHub Releases 的版本号 -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!--
+        冷启动兜底：签到页是 H5，卡死发生在 WebView 实例内部 ——
+        进程不死，重新点卡片打开的就是同一个坏实例，BACK 重进跑多少轮都白费。
+        唯一解法是把目标 App 的进程做掉，让下次 deeplink 拉起全新的 WebView。
+
+        走 killBackgroundProcesses 而不是 force-stop：后者需要 root / shell 权限，
+        普通应用调不到；前者是 normal 级权限，但只能杀【后台】进程，
+        所以调用前必须先回桌面（见 hardResetTargetApp）。
+    -->
+    <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
+
     <!-- 唤醒屏幕 -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- 开机后重排定时 -->
