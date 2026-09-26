@@ -95,6 +95,18 @@ class CheckinAccessibilityService : AccessibilityService() {
     /** 唤醒期间持有的屏幕 WakeLock（保证整条流程屏幕不灭） */
     private var screenLock: PowerManager.WakeLock? = null
 
+    /**
+     * 本轮是否「提交已发出、但没等到成功回执」。
+     *
+     * 由 [runOnce] 置位、[execute] 读取。用它把结果区分成三种，而不是只分「成/败」：
+     *   ① 全部跑通且等到成功弹窗     → 真成功；
+     *   ② 提交发出后某步失败         → 【已提交、未确认】—— 绝不能报成功（假成功会让
+     *      用户以为签上了、当天机会却已错过），也绝不能重跑（会二次提交）；
+     *   ③ 提交之前就失败             → 普通失败，照常重跑。
+     */
+    @Volatile
+    private var lastRunSubmittedUnconfirmed = false
+
     /** 最近一次窗口切换到的 Activity 类名，由无障碍事件更新 */
     @Volatile
     private var lastWindowClass: String = ""
@@ -418,6 +430,34 @@ class CheckinAccessibilityService : AccessibilityService() {
         }
         Logger.log(this, "共 ${steps.size} 条步骤")
 
+        // 一进来就把提交守卫的状态亮出来 —— 这是「今天还能不能签」的总开关。
+        // 日志里没有它，后面那些「跳过了提交步」的记录会显得莫名其妙。
+        val lastSubmit = ConfigStore.submitDate(this)
+        if (lastSubmit == ConfigStore.todayStr()) {
+            Logger.log(
+                this,
+                "⛔ 提交守卫：今天（$lastSubmit）已点过提交 —— 本次会跳过提交步，只做验证"
+            )
+        } else {
+            Logger.log(
+                this,
+                "🔓 提交守卫：今天尚未提交（上次：${lastSubmit ?: "无记录"}）—— 提交步会正常执行"
+            )
+        }
+
+        // ⚠️ 防「静默失效」：守卫再强，也得步骤表里真的标了 submit=1 才生效。
+        //    升级 APK 但没重置步骤表的用户，读到的还是存进 SP 的旧文本（没有第 7 段），
+        //    这时一切看起来正常，保护却并不存在 —— 正是本项目最忌讳的那种坑。
+        //    所以宁可吵一点，也要把这件事写进日志。
+        if (steps.none { it.submit }) {
+            Logger.log(
+                this,
+                "⚠️ 当前步骤表里【没有 submit=1 的提交步】—— 「防二次提交」保护未启用！" +
+                    "若表里含提交动作，请给那一行末尾加 |0|1；" +
+                    "或重置步骤表：adb ... --ez resetSteps true"
+            )
+        }
+
         // 调试模式：整轮只跑 1 次，且【不打扫现场】——
         // 失败了就让屏幕停在出事那一屏，好立刻 dump 控件树。
         // 正常模式才启用多轮重试（每轮都会先退出目标 App、从头再走一遍）。
@@ -430,6 +470,24 @@ class CheckinAccessibilityService : AccessibilityService() {
             Logger.log(this, "----- 第 $attempt / ${retries + 1} 次尝试 -----")
             if (attempt > 1) Thread.sleep(3000)
             if (runOnce(steps, attempt)) {
+                if (lastRunSubmittedUnconfirmed) {
+                    // 提交已发出，但没等到「您已成功签到」弹窗。
+                    //
+                    // 这里【故意不报成功】：弹窗是异步的，等不到它就无法区分
+                    // 「H5 拒了」还是「H5 慢」—— 报成功就可能是假成功，
+                    // 用户以为签上了、当天机会却已错过，比报失败更危险。
+                    //
+                    // 也【故意不重跑】：⑰ 已经把「今日已提交」落盘了，重跑只会
+                    // 空转并冒着二次提交的风险，没有任何收益。
+                    // 该做的只有一件事 —— 把此刻的页面拍进日志，供人工确认。
+                    Logger.log(
+                        this,
+                        "⚠️ 提交已发出，但未等到成功回执 —— 结果【未确认】。" +
+                            "不再重跑（防止二次提交），请人工看一眼页面是否已签到。"
+                    )
+                    dumpWindowsNow("已提交但结果未确认：请核对页面是否显示「已签到」")
+                    return
+                }
                 Logger.log(this, "🎉 签到流程执行完毕")
                 // 全部步骤跑通后，把界面拍进日志。
                 //
@@ -437,7 +495,7 @@ class CheckinAccessibilityService : AccessibilityService() {
                 // 最后一步「提交签到」点下去「成功」并不等于【真的签上了】——
                 // 实测没照片时按钮照样可点，H5 会静默拒绝、页面纹丝不动。
                 // 提交成功后页面长什么样（「已签到」？按钮变灰？）目前无从得知，
-                // 只能靠第一次真实执行把现场记下来，之后才谈得上补校验。
+                // 只能靠真实执行把现场记下来，之后才谈得上补校验。
                 dumpWindowsNow("流程全部跑通，记录提交后的界面（用于确认是否真的签上）")
                 return
             }
@@ -453,6 +511,27 @@ class CheckinAccessibilityService : AccessibilityService() {
     }
 
     private fun runOnce(steps: List<Step>, attempt: Int): Boolean {
+        lastRunSubmittedUnconfirmed = false
+
+        // 本轮是否已经点过提交。置位后，本轮的后续失败一律【不再重跑整轮】。
+        // 与 ⑰ 的持久化守卫是两道防线：守卫管「跨轮/跨天」，这里管「本轮内即时」。
+        var submitted = false
+
+        /**
+         * 统一的失败出口。所有 `return false` 都改走这里，行为按「提交是否已发出」分岔：
+         *
+         *  · 提交【尚未】发出 → 返回 false，交给上层重跑整轮（页面卡死等场景正需要它）；
+         *  · 提交【已经】发出 → 返回 true 结束本轮，并置位 [lastRunSubmittedUnconfirmed]。
+         *    重跑没有意义（提交请求已消耗当天机会），只会白跑一遍并冒二次提交的风险。
+         */
+        fun fail(): Boolean {
+            if (submitted) {
+                lastRunSubmittedUnconfirmed = true
+                return true
+            }
+            return false
+        }
+
         // 重试前先把目标 App 真正做掉，再从入口完整走一遍。
         //
         // ⚠️ 这里以前只按 4 次返回键，注释却写着「退出目标 App」—— 返回键退不掉
@@ -479,7 +558,7 @@ class CheckinAccessibilityService : AccessibilityService() {
                     "❌ 取不到前台窗口，跳转很可能被系统拦掉了，本轮直接放弃" +
                         "（若 App 在后台运行，请授予「显示在其他应用上层」权限）"
                 )
-                return false
+                return fail()
             }
             if (now != expectedPkg) {
                 Logger.log(this, "提示：当前前台是 $now，与预期 $expectedPkg 不一致，继续尝试")
@@ -495,6 +574,31 @@ class CheckinAccessibilityService : AccessibilityService() {
                 Logger.log(this, "→ [${i + 1}/${steps.size}] tab=${step.value}（已直达通知中心，跳过）")
                 continue
             }
+
+            // ⛔ 提交守卫（一天只能成功签一次）。
+            //
+            // 整个流程是会【重跑整轮】的（⑱ 等成功弹窗超时 → 判失败 → 冷启动重来）。
+            // 而最坑的情形是「H5 其实已受理、只是弹窗出来得慢」：那时其实已经签上了，
+            // 判失败重来就会对着同一天第二次点提交 —— 拿当天唯一一次机会冒险。
+            //
+            // 守卫做法：提交步执行【前】查当日标记；今天已点过 → 跳过本步，但
+            // 【不跳出流程】—— 后面的 ⑱⑲ 照跑，用于确认页面到底签上没有。
+            if (step.submit) {
+                if (ConfigStore.submittedToday(this)) {
+                    Logger.log(
+                        this,
+                        "⛔ [${i + 1}/${steps.size}] ${step.kind}=${step.value} —— " +
+                            "今天（${ConfigStore.submitDate(this)}）已提交过，跳过以防二次提交"
+                    )
+                    // 同步置位 submitted：今天的机会【已经消耗掉了】，所以本轮后续步骤
+                    // 即便失败也不该重跑整轮 —— 重跑只是空转（⑰ 还是被跳过），
+                    // 且毫无收益。置位后 fail() 会走「已提交、未确认」那条路，直接收尾。
+                    submitted = true
+                    continue
+                }
+                Logger.log(this, "🔓 提交守卫：今天尚未提交，本步允许执行（点完立刻落盘标记）")
+            }
+
             Logger.log(this, "→ [${i + 1}/${steps.size}] ${step.kind}=${step.value}")
 
             // 坐标步骤。value 支持两种写法：
@@ -507,7 +611,7 @@ class CheckinAccessibilityService : AccessibilityService() {
                 val y = parseCoord(parts.getOrNull(1), dm.heightPixels)
                 if (x == null || y == null) {
                     Logger.log(this, "   ✗ 坐标格式错误，应为 \"x,y\" 或 \"50%,86%\"")
-                    if (!step.optional) return false
+                    if (!step.optional) return fail()
                     continue
                 }
                 val ok = StepEngine.tap(this, x, y)
@@ -515,7 +619,7 @@ class CheckinAccessibilityService : AccessibilityService() {
                     this,
                     if (ok) "   ✓ 已按坐标点击（$x, $y）" else "   ✗ 坐标点击失败（$x, $y）"
                 )
-                if (!ok && !step.optional) return false
+                if (!ok && !step.optional) return fail()
                 Thread.sleep(700)
                 continue
             }
@@ -549,7 +653,7 @@ class CheckinAccessibilityService : AccessibilityService() {
                 }
                 val ok = StepEngine.tap(this, x, y)
                 Logger.log(this, if (ok) "   ✓ 已点击快门" else "   ✗ 快门点击失败")
-                if (!ok && !step.optional) return false
+                if (!ok && !step.optional) return fail()
                 Thread.sleep(700)
                 continue
             }
@@ -677,7 +781,7 @@ class CheckinAccessibilityService : AccessibilityService() {
                     // 否则回头只看到一句「仍未见」，屏幕上是哪一屏、是加载中还是报错页
                     // 全都无从判断，白瞎一次现场。
                     dumpWindowsNow("wait=${step.value} 重进与冷启动均未就绪")
-                    if (!step.optional) return false
+                    if (!step.optional) return fail()
                 }
                 Thread.sleep(300)
                 continue
@@ -697,7 +801,7 @@ class CheckinAccessibilityService : AccessibilityService() {
             if (step.kind == "scroll") {
                 val ok = StepEngine.scrollToBottom(this, step.value)
                 Logger.log(this, if (ok) "   ✓ 已滚动到底部" else "   ✗ 未找到可滚动容器")
-                if (!ok && !step.optional) return false
+                if (!ok && !step.optional) return fail()
                 Thread.sleep(800)
                 continue
             }
@@ -710,12 +814,23 @@ class CheckinAccessibilityService : AccessibilityService() {
                 // 「页面明明看得见、就是找不到控件」这类问题，光靠回头猜浪费时间，
                 // 直接把节点树拍下来最快。
                 dumpWindowsNow("步骤 ${i + 1} ${step.kind}=${step.value} 未找到控件")
-                if (!step.optional) return false
+                if (!step.optional) return fail()
                 continue
             }
             val ok = StepEngine.click(this, node)
             Logger.log(this, if (ok) "   ✓ 已点击" else "   ✗ 点击未生效")
-            if (!ok && !step.optional) return false
+
+            // ⛔ 点击真派发成功 → 立刻落盘「今日已提交」，【不等 ⑱ 的结果】。
+            //    ⑱ 等的是异步弹窗，它超时既可能是「H5 拒绝」也可能是「H5 慢」；
+            //    但从「当天机会是否已消耗」这个角度看，只要请求发出去就一样了 ——
+            //    所以标记点必须在【发起时】，不能在【确认后】，否则慢弹窗那一档就漏了。
+            //    同时置位本轮 submitted：后续步骤即便失败也不再重跑整轮。
+            if (ok && step.submit) {
+                ConfigStore.markSubmitted(this)
+                submitted = true
+                Logger.log(this, "   🔒 已落盘「今日已提交」标记 —— 后续任何重跑都不会再点这一步")
+            }
+            if (!ok && !step.optional) return fail()
 
             Thread.sleep(700)
         }

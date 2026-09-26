@@ -65,7 +65,7 @@ android/README.md                    构建手册与踩坑记录（含详细实�
 
 ## 步骤表怎么填
 
-「设置」页里每行一条，自上而下执行，格式 `kind|value|contains|optional|waitMs|last`。
+「设置」页里每行一条，自上而下执行，格式 `kind|value|contains|optional|waitMs|last|submit`。
 
 | kind | 含义 | value 示例 |
 |---|---|---|
@@ -80,6 +80,10 @@ android/README.md                    构建手册与踩坑记录（含详细实�
 | `shutter` | 截图识别快门并点击 | 空 |
 | `scroll` | 滚动 | 空 |
 | `sleep` | 静置等待 | `1500` |
+
+> **`submit=1`（第 7 段）**：标记「提交步」，全流程只能有一条。
+> 它是**一天只能签一次**的防线 —— 执行前查当日是否已提交，已提交就跳过；点击成功后立刻落盘。
+> 这样即使流程因失败重跑，也不会第二次点提交。调试时可用 `--ez clearSubmitDate true` 复位。
 
 ## 已知限制
 

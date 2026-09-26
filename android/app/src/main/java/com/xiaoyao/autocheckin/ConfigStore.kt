@@ -15,6 +15,9 @@ object ConfigStore {
     private const val K_ENABLED = "enabled"
     private const val K_DEBUG = "debug_mode"
 
+    /** 最近一次「点过提交」的日期（yyyy-MM-dd）。见 [markSubmitted]。 */
+    private const val K_SUBMIT_DATE = "submit_date"
+
     /*
      * 以下入口与目标均由真机侦察确定（2026-09-25，华为 JEF-AN00 实测），
      * 用户未自行修改时直接生效，无需手填。
@@ -81,6 +84,47 @@ object ConfigStore {
      */
     fun resetSteps(c: Context) {
         sp(c).edit().remove(K_STEPS).apply()
+    }
+
+    // ==================== 提交守卫（一天只能签一次） ====================
+    //
+    // 为什么需要它：整个流程【会重跑整轮】（⑱ 等成功弹窗超时 → 判失败 → 冷启动重来）。
+    // 而最危险的情形是「H5 其实已受理、只是弹窗出现得慢」—— 这时已经签上了，
+    // 判失败重来就会对着同一天第二次点提交，拿唯一一次机会冒险。
+    //
+    // 做法：把「点过提交」的【日期】落盘。重跑时若发现今天已点过，引擎就跳过提交步。
+    // 只存日期（yyyy-MM-dd）不存时间戳，跨天自动失效，不需要额外的清理任务。
+
+    /** 今天，yyyy-MM-dd。零依赖：用 framework 自带的 SimpleDateFormat。 */
+    fun todayStr(): String =
+        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+
+    /** 最近一次「点过提交」的日期；从未点过返回 null。 */
+    fun submitDate(c: Context): String? = sp(c).getString(K_SUBMIT_DATE, null)
+
+    /** 今天是否已经点过提交。 */
+    fun submittedToday(c: Context): Boolean = submitDate(c) == todayStr()
+
+    /**
+     * 落盘「今天已点过提交」。
+     *
+     * ⚠️ 必须在【点击派发成功后立刻】调用，不能等 ⑱ 的结果 ——
+     *    ⑱ 等的是异步弹窗，它超时既可能是「H5 拒绝」也可能是「H5 慢」，
+     *    但从「当天机会是否已消耗」的角度看，只要请求发出去就一样了。
+     */
+    fun markSubmitted(c: Context) {
+        sp(c).edit().putString(K_SUBMIT_DATE, todayStr()).apply()
+    }
+
+    /**
+     * 清掉提交标记，让提交步可以再次执行。
+     *
+     * 用途：调试时点过一次提交后想再跑完整流程，用它复位。
+     * 触发：adb shell am start -n com.xiaoyao.autocheckin/.MainActivity --ez clearSubmitDate true
+     * ⚠️ 正常使用【不要】清 —— 清了就等于放弃「不会二次提交」这层保护。
+     */
+    fun clearSubmitDate(c: Context) {
+        sp(c).edit().remove(K_SUBMIT_DATE).apply()
     }
 
     fun save(

@@ -174,6 +174,27 @@ class MainActivity : Activity() {
             Logger.log(this, "步骤表已重置为内置默认值（${ConfigStore.steps(this).size} 条有效步骤）")
         }
 
+        // 清掉「今日已提交」标记：调试时点过一次提交后想再跑完整流程，用它复位。
+        //
+        // ⚠️ 正常签到【别用】—— 清了就等于放弃「重跑不会二次提交」这层保护。
+        // 触发：adb shell am start -n com.xiaoyao.autocheckin/.MainActivity --ez clearSubmitDate true
+        if (from?.getBooleanExtra("clearSubmitDate", false) == true) {
+            val was = ConfigStore.submitDate(this)
+            ConfigStore.clearSubmitDate(this)
+            Logger.log(this, "已清除「今日已提交」标记（原值：${was ?: "无记录"}），提交步可以再次执行")
+        }
+
+        // 反向：把标记设成今天，用来【验证守卫而不真提交】。
+        //
+        // 为什么不靠真跑一遍来验证：今天没标记时守卫会放行 → 真的点提交 →
+        // 当天唯一一次机会就没了。先设成「今天已提交」，再跑一遍，
+        // 若日志出现「⛔ 已提交过，跳过」就证明守卫生效，且全程不会点提交。
+        // 触发：adb shell am start -n com.xiaoyao.autocheckin/.MainActivity --ez markSubmitted true
+        if (from?.getBooleanExtra("markSubmitted", false) == true) {
+            ConfigStore.markSubmitted(this)
+            Logger.log(this, "已把「今日已提交」标记设为 ${ConfigStore.todayStr()}（提交步将被跳过）")
+        }
+
         // adb 直切调试模式：--ez debug true / false
         // 电脑端调参时省得再去点屏幕，也能和 resetSteps / runNow 一条命令串起来。
         if (from?.hasExtra("debug") == true) {

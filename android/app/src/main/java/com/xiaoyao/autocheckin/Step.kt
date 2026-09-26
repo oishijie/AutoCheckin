@@ -42,12 +42,15 @@ package com.xiaoyao.autocheckin
  * 比坐标（xy）可靠得多 —— 坐标一换分辨率就废。
  *
  * 界面上的文本格式（每行一条，以 # 开头为注释）：
- *   kind|value|contains|optional|waitMs|last
- *   后四段可省略，例：text|提交
+ *   kind|value|contains|optional|waitMs|last|submit
+ *   后五段可省略，例：text|提交
  *
  * last = 1 时，若匹配到多个控件则取【最后一个】。
  * 真机侦察结论：目标 App 的消息列表是「旧 → 新」排列，最新的签到提醒在最下面，
  * 因此点卡片必须用 last=1，否则会点到最旧的那条。
+ *
+ * submit = 1 表示这是【提交步】（全流程最多一条）。见 [submit] 字段说明 ——
+ * 它是「一天只能签一次」的防线：执行前查当日标记、执行后立刻落盘。
  */
 data class Step(
     val kind: String,
@@ -55,10 +58,31 @@ data class Step(
     val contains: Boolean = false,
     val optional: Boolean = false,
     val waitMs: Long = 8000L,
-    val last: Boolean = false
+    val last: Boolean = false,
+    /**
+     * 【提交步】标记 —— 整个流程里最多只能有一条。
+     *
+     * 为什么需要它：签到一天只能成功一次，而本流程是【会重跑整轮】的
+     * （⑱ 等成功弹窗超时 → 判失败 → 冷启动重来）。若不拦，重跑就会对着
+     * 同一天第二次点「提交」—— 拿当天唯一一次机会冒险。实测最危险的情形是
+     * 「H5 已受理但弹窗出现得慢」：这时其实已经签上了，判失败重来就会二次提交。
+     *
+     * 引擎对 submit=1 的步做两件事（见 CheckinAccessibilityService）：
+     *   ① 执行【前】查 ConfigStore：今天已提交过 → 直接跳过本步（不再点）；
+     *   ② 执行【后】立刻把「今天已提交」落盘 —— 不等结果，因为只要点击派发
+     *      出去就已经消耗掉当天机会了。
+     */
+    val submit: Boolean = false
 ) {
-    fun encode(): String =
-        "$kind|$value|${if (contains) 1 else 0}|${if (optional) 1 else 0}|$waitMs|${if (last) 1 else 0}"
+    /**
+     * 回写为一行。submit=false 时【不追加第 7 段】，保持老步骤表原样 ——
+     * 这样用户在编辑框里看到的绝大多数行仍是 6 段，不被冗余的 `|0` 撑长。
+     */
+    fun encode(): String {
+        val base = "$kind|$value|${if (contains) 1 else 0}|${if (optional) 1 else 0}|" +
+            "$waitMs|${if (last) 1 else 0}"
+        return if (submit) "$base|1" else base
+    }
 
     companion object {
         /** 解析单行配置，非法行返回 null */
@@ -77,8 +101,9 @@ data class Step(
             val optional = p.getOrNull(3)?.trim() == "1"
             val wait = p.getOrNull(4)?.trim()?.toLongOrNull()?.coerceIn(1000L, 60000L) ?: 8000L
             val last = p.getOrNull(5)?.trim() == "1"
+            val submit = p.getOrNull(6)?.trim() == "1"
 
-            return Step(kind, value, contains, optional, wait, last)
+            return Step(kind, value, contains, optional, wait, last, submit)
         }
 
         /**
@@ -87,8 +112,10 @@ data class Step(
          */
         val DEFAULT = listOf(
             "# 每行一条，按顺序执行。以 # 开头的行会被忽略。",
-            "# 格式：kind|value|contains|optional|waitMs|last",
+            "# 格式：kind|value|contains|optional|waitMs|last|submit",
             "# kind 取值：tab / text / textwait / wait / viswait / id / desc / cls / uni / uiwait / xy / shutter / scroll / sleep",
+            "# submit=1 表示「提交步」（全流程只能有一条）：执行前查当日是否已提交，",
+            "#          执行后立刻落盘 —— 保证重跑时不会第二次点提交。默认可省略。",
             "#",
             "# ① 切到底部「消息」Tab。",
             "#    扫码入口直达通知中心时，本步会被自动跳过（不必切）。",
@@ -235,15 +262,26 @@ data class Step(
             "#       系统手势安全线更低到 2129 —— 按钮整个压在系统手势区里，坐标点击必被系统吞。",
             "#       好在 Button 自身 clickable=true，引擎第一条路径就是 ACTION_CLICK，天然绕开。",
             "#       谁把它改成 xy，这一步必挂。",
-            "#    ⛔ 一天只能成功签一次。只想验证链路、不想真签时，把 ⑮~⑲ 整段注释掉。",
-            "text|提交签到|0|0|10000",
+            "#    ⛔ 一天只能成功签一次 —— 下面 submit=1 就是这条防线（2026-09-26 加）：",
+            "#       ① 执行【前】查当日标记：今天已点过提交 → 跳过本步（⑱⑲ 照跑，用于确认）；",
+            "#       ② 点击派发成功后【立刻落盘】「今日已提交」，不等结果 ——",
+            "#          请求一旦发出就已经消耗掉当天机会了。",
+            "#       两条合起来，重跑整轮也不可能二次提交。",
+            "#       想在一次调试会话里反复跑，用 adb 清掉标记：",
+            "#         adb shell am start -n com.xiaoyao.autocheckin/.MainActivity --ez clearSubmitDate true",
+            "#    只想验证链路、不想真签时，把 ⑮~⑲ 整段注释掉。",
+            "text|提交签到|0|0|10000|0|1",
             "",
             "# ⑱ 等结果弹窗落地 ← 【点到了 ≠ 签上了】的唯一解法。",
             "#    按钮在【没有照片】时也是可点的蓝色，点下去 H5 静默拒绝、页面毫无变化；",
             "#    只有真签上了才会弹「您已成功签到！」",
             "#    —— 2026-09-25 23:19 那笔真实签到，截屏为证。",
-            "#    等不到 → 本轮判失败、重来（这才是「失败」该有的样子，而不是假成功）。",
+            "#    等不到 → 判本轮失败。但【不会】造成二次提交：⑰ 已落盘当日标记，",
+            "#    且引擎规定「提交发出后不再重跑整轮」，改为以「已提交、结果未确认」收尾 + dump 现场。",
             "#    contains=1：弹窗正文是「您已成功签到！」，包含匹配更抗文案微调。",
+            "#    ⚠️ 仍保持 optional=0（不放过）—— 拿不到这个弹窗就【不敢报成功】：",
+            "#       假成功比假失败更危险，用户会以为签上了、当天机会却已错过。",
+            "#       等首次实签采集到「已签到」页面的真实特征后，再把判据从「弹窗」扩到「页面状态」。",
             "viswait|您已成功签到|1|0|15000",
             "",
             "# ⑲ 点掉结果弹窗的「确认」。",
