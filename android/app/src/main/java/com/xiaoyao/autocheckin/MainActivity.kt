@@ -35,6 +35,10 @@ class MainActivity : Activity() {
     private lateinit var minuteEt: EditText
     private lateinit var enabledCb: Switch
     private lateinit var debugCb: Switch
+    private lateinit var pushCb: Switch
+    private lateinit var pushUrlEt: EditText
+    private lateinit var pushTokenEt: EditText
+    private lateinit var pushUserEt: EditText
     private lateinit var logTv: TextView
     private lateinit var logScroll: ScrollView
 
@@ -82,6 +86,10 @@ class MainActivity : Activity() {
         minuteEt = findViewById(R.id.etMinute)
         enabledCb = findViewById(R.id.cbEnabled)
         debugCb = findViewById(R.id.cbDebug)
+        pushCb = findViewById(R.id.cbPush)
+        pushUrlEt = findViewById(R.id.etPushUrl)
+        pushTokenEt = findViewById(R.id.etPushToken)
+        pushUserEt = findViewById(R.id.etPushUser)
         logTv = findViewById(R.id.tvLog)
         logScroll = findViewById(R.id.logScroll)
 
@@ -111,12 +119,22 @@ class MainActivity : Activity() {
             refreshLog()
         }
 
+        // 测试推送：把当前填的地址/token 立刻验一遍，不用等下次签到。
+        // 先 save(false) 是为了「测的就是输入框里这一份」——
+        // 否则改了 token 没保存，测的还是旧的，白高兴一场。
+        findViewById<Button>(R.id.btnTestPush).setOnClickListener {
+            save(false)
+            testPush()
+        }
+
         // 权限引导：定时签到必须在【后台】启动 deeplink，缺悬浮窗权限会被系统拦掉。
         // 无 UI 触发（adb runNow / testRecover / onceIn ...）时不弹，避免打断自动化。
         if (intent?.getBooleanExtra("runNow", false) != true &&
             intent?.getBooleanExtra("testRecover", false) != true &&
             intent?.getBooleanExtra("coldReset", false) != true &&
             intent?.getBooleanExtra("testSubmit", false) != true &&
+            intent?.getBooleanExtra("testPush", false) != true &&
+            intent?.hasExtra("pushToken") != true &&
             intent?.getBooleanExtra("resetSteps", false) != true &&
             (intent?.getIntExtra("onceIn", 0) ?: 0) <= 0
         ) {
@@ -201,6 +219,27 @@ class MainActivity : Activity() {
             val on = from.getBooleanExtra("debug", false)
             ConfigStore.setDebugMode(this, on)
             debugCb.isChecked = on
+        }
+
+        // adb 写入推送 token 并开启推送：--es pushToken "xxxx"
+        // 装机后想立刻验推送，不必在手机小键盘上戳一串密钥。
+        if (from?.hasExtra("pushToken") == true) {
+            val t = from.getStringExtra("pushToken")?.trim() ?: ""
+            ConfigStore.savePush(this, true, ConfigStore.pushUrl(this), t, ConfigStore.pushUserId(this))
+            Logger.log(this, "已从 adb 写入推送 token（${t.length} 字符）并开启结果推送")
+        }
+
+        // 测试推送：--ez testPush true
+        if (from?.getBooleanExtra("testPush", false) == true) {
+            testPush()
+            return
+        }
+
+        // 忘掉历史快门坐标：--ez clearShutterPoint true
+        // 用途：换设备/换分辨率后旧坐标失效，或者怀疑兜底坐标把流程带偏了。
+        if (from?.getBooleanExtra("clearShutterPoint", false) == true) {
+            ConfigStore.clearShutterPoint(this)
+            Logger.log(this, "已清除历史快门坐标，下次识别失败将回退到默认比例")
         }
 
         // 模拟定时：只排闹钟，不立即执行
@@ -439,6 +478,10 @@ class MainActivity : Activity() {
         minuteEt.setText(ConfigStore.minute(this).toString())
         enabledCb.isChecked = ConfigStore.enabled(this)
         debugCb.isChecked = ConfigStore.debugMode(this)
+        pushCb.isChecked = ConfigStore.pushEnabled(this)
+        pushUrlEt.setText(ConfigStore.pushUrl(this))
+        pushTokenEt.setText(ConfigStore.pushToken(this))
+        pushUserEt.setText(ConfigStore.pushUserId(this))
     }
 
     private fun save(showToast: Boolean) {
@@ -454,6 +497,18 @@ class MainActivity : Activity() {
 
         ConfigStore.save(this, intentUrl, steps, pkg, hour, minute, 3, enabled)
 
+        // 推送配置：token 原样保存（不做 trim 以外的加工）——
+        // 它是要塞进 HTTP 头里的，多一个空格就 401，而报错信息不会告诉你
+        // 「是你多打了个空格」。所以这里统一 trim，用户粘错了至少不会这么坑。
+        val pushUrl = pushUrlEt.text.toString().trim().ifEmpty { ConfigStore.DEFAULT_PUSH_URL }
+        val pushToken = pushTokenEt.text.toString().trim()
+        val pushUser = pushUserEt.text.toString().trim()
+        pushUrlEt.setText(pushUrl)
+        ConfigStore.savePush(this, pushCb.isChecked, pushUrl, pushToken, pushUser)
+        if (pushCb.isChecked && pushToken.isEmpty()) {
+            Logger.log(this, "⚠️ 已开启结果推送，但 token 是空的 —— 推送不会生效，请填上 token")
+        }
+
         val parsed = ConfigStore.steps(this)
         Logger.log(this, "配置已保存，解析出 ${parsed.size} 条有效步骤")
 
@@ -466,6 +521,36 @@ class MainActivity : Activity() {
         if (showToast) {
             Toast.makeText(this, if (enabled) "已保存，定时已启动" else "已保存，定时已关闭", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    /**
+     * 发一条测试推送。
+     *
+     * 为什么非要有这个按钮：推送配置错了（token 少打一个字母、URL 拼错）
+     * 在平时**完全看不出来** —— 它只在「签到失败该给你发消息」的那一刻才暴露，
+     * 而那时当天机会已经错过了，你连补救都不知道。所以给个按钮当场验。
+     * 结果写日志（推送服务返回的是 JSON，Toast 装不下）。
+     */
+    private fun testPush() {
+        Logger.log(this, "===== 推送测试开始 =====")
+        val token = ConfigStore.pushToken(this)
+        Logger.log(
+            this,
+            "启用=${ConfigStore.pushEnabled(this)}  地址=${ConfigStore.pushUrl(this)}  " +
+                "token=${if (token.isEmpty()) "（空！不会发出）" else "已填 ${token.length} 字符"}  " +
+                "接收人=${ConfigStore.pushUserId(this).ifBlank { "（用服务端默认）" }}"
+        )
+        refreshLog()
+        Thread {
+            val out = Pusher.send(
+                this,
+                "FAFU签到 · 测试",
+                "这是一条测试推送。收到它说明链路是通的，签到结果也会这样发给你。"
+            )
+            Logger.log(this, if (out.ok) "✅ 推送成功：${out.detail}" else "❌ 推送失败：${out.detail}")
+            Logger.log(this, "===== 推送测试结束 =====")
+            ui.post { refreshLog() }
+        }.start()
     }
 
     // ---------------- 状态与操作 ----------------

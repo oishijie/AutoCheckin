@@ -132,9 +132,13 @@ object StepEngine {
                 val d = node.contentDescription?.toString() ?: return false
                 if (step.contains) d.contains(step.value) else d == step.value
             }
-            // wait / text / textwait / viswait 同源：match 规则一致，区别只在于
-            // 「等超时之后怎么办」和「要不要判尺寸」—— 那部分在 Service 里，不在匹配层。
-            "wait", "text", "textwait", "viswait" -> {
+            // wait / text / textwait / viswait / done 同源：match 规则一致，
+            // 区别只在于「等超时之后怎么办」「要不要判尺寸」「是不是终止信号」——
+            // 那部分在 Service 里，不在匹配层。
+            //
+            // done 是【终止信号】：匹配到即代表「今天已经签过了」，整轮立刻收工。
+            // 它的存在理由见 Step.kt ⑤- 的说明（用户手动签过时 App 并不知情）。
+            "wait", "text", "textwait", "viswait", "done" -> {
                 val t = node.text?.toString() ?: return false
                 if (step.contains) t.contains(step.value) else t == step.value
             }

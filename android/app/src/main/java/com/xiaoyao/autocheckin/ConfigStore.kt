@@ -18,6 +18,15 @@ object ConfigStore {
     /** 最近一次「点过提交」的日期（yyyy-MM-dd）。见 [markSubmitted]。 */
     private const val K_SUBMIT_DATE = "submit_date"
 
+    /** 最近一次【成功识别到快门】的坐标，存的是比例（"xRatio,yRatio"）。见 [saveShutterPoint]。 */
+    private const val K_SHUTTER_POINT = "shutter_point"
+
+    // ---- 结果推送（微信） ----
+    private const val K_PUSH_ON = "push_on"
+    private const val K_PUSH_URL = "push_url"
+    private const val K_PUSH_TOKEN = "push_token"
+    private const val K_PUSH_USER = "push_user"
+
     /*
      * 以下入口与目标均由真机侦察确定（2026-09-25，华为 JEF-AN00 实测），
      * 用户未自行修改时直接生效，无需手填。
@@ -125,6 +134,81 @@ object ConfigStore {
      */
     fun clearSubmitDate(c: Context) {
         sp(c).edit().remove(K_SUBMIT_DATE).apply()
+    }
+
+    // ==================== 快门坐标记忆（识别失败的兜底） ====================
+    //
+    // 为什么需要它：ShutterFinder 是「图像识别」，理论上够稳，但它依赖
+    // AccessibilityService.takeScreenshot —— 相机页在预览时偶尔会拒绝截图
+    // （拿不到 HardwareBuffer），一拒绝就整个识别链条归零。
+    //
+    // 老代码这时会回退到写死的 50%,91% —— 而那个比例真机实测偏了 112px
+    // （算出来 y≈2068，实际快门 y≈2180），基本必失。等于「兜底兜了个空」。
+    //
+    // 改成记住【上次真的识别到快门的那一点】：快门在同一个 App 的同一种
+    // 相机页面里位置是固定的，上次准这次也准。存比例而不是像素，
+    // 换分辨率/换设备也还能凑合。
+
+    /** 归一化后的快门坐标（相对屏幕物理尺寸，0~1）。 */
+    data class ShutterPoint(val xRatio: Float, val yRatio: Float)
+
+    /** 上次成功识别到的快门坐标；从未成功过返回 null。 */
+    fun shutterPoint(c: Context): ShutterPoint? {
+        val s = sp(c).getString(K_SHUTTER_POINT, null) ?: return null
+        val p = s.split(",")
+        if (p.size != 2) return null
+        val x = p[0].trim().toFloatOrNull() ?: return null
+        val y = p[1].trim().toFloatOrNull() ?: return null
+        // 明显不合理的一律当没有（防手改 SP 或旧版本脏数据把点甩到天上）
+        if (x <= 0.01f || x >= 0.99f || y <= 0.01f || y >= 0.99f) return null
+        return ShutterPoint(x, y)
+    }
+
+    /**
+     * 记下「这次识别到的快门在哪」。传入的是**屏幕物理像素**坐标，
+     * 内部按屏幕尺寸归一化后存储。
+     */
+    fun saveShutterPoint(c: Context, x: Float, y: Float, screenW: Int, screenH: Int) {
+        if (screenW <= 0 || screenH <= 0) return
+        val xr = x / screenW
+        val yr = y / screenH
+        if (xr <= 0.01f || xr >= 0.99f || yr <= 0.01f || yr >= 0.99f) return
+        sp(c).edit().putString(K_SHUTTER_POINT, "$xr,$yr").apply()
+    }
+
+    /** 忘掉快门坐标（识别的兜底又回到默认比例）。 */
+    fun clearShutterPoint(c: Context) {
+        sp(c).edit().remove(K_SHUTTER_POINT).apply()
+    }
+
+    // ==================== 结果推送（微信） ====================
+    //
+    // 为什么做：签到是【无人值守】的 —— 定时在后台跑，成功了没人知道，
+    // 失败了更没人知道，只能自己想起来去翻日志。把结果推到微信上，
+    // 「签上了 / 没签上」一眼就知道，失败了还来得及当天手动补。
+    //
+    // ⚠️ token 是密钥，绝不写进代码默认值（仓库是公开的）。只能由用户在
+    //    设置页里填，存在本机 SharedPreferences 里。
+
+    /** 默认推送服务地址（用户的 Cloudflare Worker）。不含任何密钥，可硬编码。 */
+    const val DEFAULT_PUSH_URL = "https://push.142588.xyz/wxsend"
+
+    fun pushEnabled(c: Context): Boolean = sp(c).getBoolean(K_PUSH_ON, false)
+    fun pushUrl(c: Context): String =
+        sp(c).getString(K_PUSH_URL, DEFAULT_PUSH_URL) ?: DEFAULT_PUSH_URL
+
+    fun pushToken(c: Context): String = sp(c).getString(K_PUSH_TOKEN, "") ?: ""
+
+    /** 临时覆盖接收人（可选）。留空表示用服务端默认的那批用户。 */
+    fun pushUserId(c: Context): String = sp(c).getString(K_PUSH_USER, "") ?: ""
+
+    fun savePush(c: Context, enabled: Boolean, url: String, token: String, userId: String) {
+        sp(c).edit()
+            .putBoolean(K_PUSH_ON, enabled)
+            .putString(K_PUSH_URL, url)
+            .putString(K_PUSH_TOKEN, token)
+            .putString(K_PUSH_USER, userId)
+            .apply()
     }
 
     fun save(

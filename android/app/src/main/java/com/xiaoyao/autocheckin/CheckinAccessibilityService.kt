@@ -107,6 +107,17 @@ class CheckinAccessibilityService : AccessibilityService() {
     @Volatile
     private var lastRunSubmittedUnconfirmed = false
 
+    /**
+     * 本轮是否发现「今天已经签过了」—— 由 `done` 步置位、[execute] 读取。
+     *
+     * 与上面那个字段的区别：那个说的是「我们点过提交、但没等到回执」，
+     * 这个说的是「页面上明明白白写着已签到」。后者才是铁证 ——
+     * 用户自己手动签的时候 App 一无所知（`submitDate` 只记 App 自己点过的提交），
+     * 只有看页面才能知道。
+     */
+    @Volatile
+    private var lastRunAlreadyDone = false
+
     /** 最近一次窗口切换到的 Activity 类名，由无障碍事件更新 */
     @Volatile
     private var lastWindowClass: String = ""
@@ -257,27 +268,13 @@ class CheckinAccessibilityService : AccessibilityService() {
      * 就能直接看识别结果、耗时和归一化位置。
      */
     fun testShutter() {
-        Thread {
-            Logger.log(this, "===== 快门识别测试开始 =====")
-            val t0 = System.currentTimeMillis()
-            val pt = ShutterFinder.locate(this)
-            val cost = System.currentTimeMillis() - t0
-            val dm = resources.displayMetrics
-            Logger.log(this, "识别耗时 ${cost}ms；displayMetrics=${dm.widthPixels}x${dm.heightPixels}")
-            if (pt == null) {
-                Logger.log(this, "✗ 没识别到白色快门（截图被拒？或当前不在相机页？）")
-            } else {
-                Logger.log(
-                    this,
-                    "✓ 识别到快门 (${pt.x}, ${pt.y})，归一化 " +
-                        "(${"%.1f".format(pt.x / dm.widthPixels * 100)}%, " +
-                        "${"%.1f".format(pt.y / dm.heightPixels * 100)}%)"
-                )
-                val ok = StepEngine.tap(this, pt.x, pt.y)
-                Logger.log(this, if (ok) "✓ 已点击快门" else "✗ 点击失败")
-            }
-            Logger.log(this, "===== 快门识别测试结束 =====")
-        }.start()
+        // 实现整体搬到 ShutterFinder 里了（识别 + 回退策略是同一件事的两面，
+        // 分开写会漂）。这里留一层薄封装，MainActivity 的调用点不用改。
+        //
+        // ⚠️ 与旧版的区别：识别失败时【不再自动点击】。旧版会退到写死的
+        //    50%,91% 按下去 —— 那是盲点，容易在无关页面上误触发。
+        //    现在只报告「能不能认出来 / 有没有历史坐标可用」。
+        ShutterFinder.testShutter(this)
     }
 
     fun probeWindow() {
@@ -422,10 +419,34 @@ class CheckinAccessibilityService : AccessibilityService() {
 
     private fun execute(source: String) {
         Logger.log(this, "========== 开始签到（$source）==========")
+        val t0 = System.currentTimeMillis()
+
+        /** 流程已跑的时长，人话格式，用于推送内容。 */
+        fun cost(): String {
+            val sec = (System.currentTimeMillis() - t0) / 1000
+            return if (sec < 60) "${sec}秒" else "${sec / 60}分${sec % 60}秒"
+        }
+
+        /**
+         * 推一条结果通知（走用户自建的微信推送服务）。
+         *
+         * ⚠️ 刻意【吞掉一切异常】并只写日志：推送是锦上添花，签到才是本体。
+         *    没网、token 过期、服务挂了 —— 都不该影响「签到成功还是失败」
+         *    这个判断，更不该让流程在这里抛异常收尾。
+         *    同步调用（阻塞最长约 13 秒），但此时流程已经结束，等得起。
+         */
+        fun push(tag: String, msg: String) {
+            if (!ConfigStore.pushEnabled(this)) return
+            val when_ = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.US)
+                .format(java.util.Date())
+            val out = Pusher.send(this, "FAFU签到 · $tag", "$msg\n（$when_，共 ${cost()}）")
+            Logger.log(this, if (out.ok) "📤 已推送「$tag」：${out.detail}" else "📤 推送失败「$tag」：${out.detail}")
+        }
 
         val steps = ConfigStore.steps(this)
         if (steps.isEmpty()) {
             Logger.log(this, "❌ 步骤表为空，请先在 App 里配置步骤")
+            push("配置异常", "步骤表为空，本次未执行任何动作。请打开 App 检查配置。")
             return
         }
         Logger.log(this, "共 ${steps.size} 条步骤")
@@ -470,6 +491,16 @@ class CheckinAccessibilityService : AccessibilityService() {
             Logger.log(this, "----- 第 $attempt / ${retries + 1} 次尝试 -----")
             if (attempt > 1) Thread.sleep(3000)
             if (runOnce(steps, attempt)) {
+                if (lastRunAlreadyDone) {
+                    // 页面自己说「已签到」—— 这是最硬的成功证据，比任何标记都可信。
+                    // 此时不拍照、不提交、不重试，直接收工。
+                    Logger.log(
+                        this,
+                        "✅ 今天已经签过了（页面处于「已签到」态）—— 无需任何操作，流程结束"
+                    )
+                    push("已签到", "今天已经签过了，无需操作。")
+                    return
+                }
                 if (lastRunSubmittedUnconfirmed) {
                     // 提交已发出，但没等到「您已成功签到」弹窗。
                     //
@@ -486,6 +517,11 @@ class CheckinAccessibilityService : AccessibilityService() {
                             "不再重跑（防止二次提交），请人工看一眼页面是否已签到。"
                     )
                     dumpWindowsNow("已提交但结果未确认：请核对页面是否显示「已签到」")
+                    push(
+                        "结果待确认",
+                        "提交请求已发出，但没等到成功回执。可能已签上、也可能被拒 —— " +
+                            "麻烦打开 App 看一眼是否显示「已签到」。"
+                    )
                     return
                 }
                 Logger.log(this, "🎉 签到流程执行完毕")
@@ -497,6 +533,7 @@ class CheckinAccessibilityService : AccessibilityService() {
                 // 提交成功后页面长什么样（「已签到」？按钮变灰？）目前无从得知，
                 // 只能靠真实执行把现场记下来，之后才谈得上补校验。
                 dumpWindowsNow("流程全部跑通，记录提交后的界面（用于确认是否真的签上）")
+                push("签到成功", "已成功签到 🎉")
                 return
             }
         }
@@ -508,10 +545,21 @@ class CheckinAccessibilityService : AccessibilityService() {
                 "❌ 多次尝试均失败，请检查步骤配置或改用 id/坐标定位"
             }
         )
+        // 失败一定要推 —— 这是推送最有价值的场景：当天还能补签的话，
+        // 用户看到消息就来得及手动处理；不推的话就只能第二天翻日志干瞪眼。
+        // 调试模式不推：那是自己在电脑前盯着，推了纯打扰。
+        if (!debug) {
+            push(
+                "签到失败",
+                "${retries + 1} 次尝试都没签上，请手动打开 App 签到" +
+                    "（签到窗口 20:00–23:00，补签 23:00–23:30）。"
+            )
+        }
     }
 
     private fun runOnce(steps: List<Step>, attempt: Int): Boolean {
         lastRunSubmittedUnconfirmed = false
+        lastRunAlreadyDone = false
 
         // 本轮是否已经点过提交。置位后，本轮的后续失败一律【不再重跑整轮】。
         // 与 ⑰ 的持久化守卫是两道防线：守卫管「跨轮/跨天」，这里管「本轮内即时」。
@@ -526,6 +574,27 @@ class CheckinAccessibilityService : AccessibilityService() {
          */
         fun fail(): Boolean {
             if (submitted) {
+                // 提交已发出、但后面某步失败。先别急着判「未确认」——
+                // 页面很可能已经变成「已签到」态了（H5 受理了，只是成功弹窗
+                // 没等到，或被别的窗口盖住）。
+                //
+                // 以【页面事实】为准，比以「有没有弹窗」为准可靠得多：
+                // 弹窗是异步且可被吞的，而页面上那个「已签到」是结果本身。
+                //
+                // 判据取自步骤表里那条 done 步（可配置），不写死文案 ——
+                // 目标 App 改版时用户改表即可，不用重发 APK。
+                val doneStep = steps.firstOrNull { it.kind == "done" }
+                if (doneStep != null &&
+                    StepEngine.awaitNode(this, doneStep, 3000L, requireVisible = true) != null
+                ) {
+                    Logger.log(
+                        this,
+                        "✅ 提交后页面已变为「${doneStep.value}」—— " +
+                            "据此判定签到成功（成功回执没等到，但页面事实如此）"
+                    )
+                    lastRunAlreadyDone = true
+                    return true
+                }
                 lastRunSubmittedUnconfirmed = true
                 return true
             }
@@ -601,6 +670,35 @@ class CheckinAccessibilityService : AccessibilityService() {
 
             Logger.log(this, "→ [${i + 1}/${steps.size}] ${step.kind}=${step.value}")
 
+            // 完成标记步骤（done）：一旦匹配到，说明【今天已经签过了】，整轮立刻收工。
+            //
+            // 为什么需要它（2026-09-26 真机踩出来的）：
+            // 用户自己手动签过之后，App 一无所知 —— submitDate 只记 App 自己点过的
+            // 提交。于是定时任务照跑：打开签到页 → 页面已是「已完成」态（有「已签到」
+            // 和照片，但没有「重新定位」按钮）→ ⑤- 步必然找不到控件 → 判失败 →
+            // 冷启动重来。实测 4 轮全废，白白折腾手机近两分钟，还要冒
+            // 「一路走到 ⑰ 点提交」的风险。
+            //
+            // 它是「防二次提交」的【第三道防线】，也是最本质的一道：
+            // 前两道（submit 守卫、本轮 submitted 标志）都依赖 App 自己的记忆，
+            // 而这一道直接看【页面事实】—— 页面说签过了，就是签过了。
+            if (step.kind == "done") {
+                // requireVisible = true：判据必须真的渲染出尺寸才算数，
+                // 免得匹配到某个隐藏节点就把整轮误当成「已完成」收工。
+                val node = StepEngine.awaitNode(this, step, step.waitMs, requireVisible = true)
+                if (node != null) {
+                    Logger.log(
+                        this,
+                        "⏹ 出现「${step.value}」—— 今天已完成签到，" +
+                            "立即结束本流程（不拍照、不提交、不重试）"
+                    )
+                    lastRunAlreadyDone = true
+                    return true
+                }
+                Logger.log(this, "   · 未出现「${step.value}」，按「今天还没签」继续往下走")
+                continue
+            }
+
             // 坐标步骤。value 支持两种写法：
             //   绝对像素  xy|540,2060
             //   屏幕比例  xy|50%,86%      ← 推荐，换分辨率不用改
@@ -635,21 +733,41 @@ class CheckinAccessibilityService : AccessibilityService() {
             //   于是比例算出来的点正好在快门边缘上下游走 → 时灵时不灵。
             // 截图认像素拿到的是屏幕物理坐标，把这一层全绕开了。
             if (step.kind == "shutter") {
-                val pt = ShutterFinder.locate(this)
+                val hit = ShutterFinder.locate(this)
+                val (sw, sh) = ShutterFinder.realScreenSize(this)
                 val x: Float
                 val y: Float
-                if (pt != null) {
-                    Logger.log(this, "   · 图像识别到快门 (${pt.x}, ${pt.y})")
-                    x = pt.x
-                    y = pt.y
+                if (hit != null) {
+                    Logger.log(this, "   · 图像识别：${hit.detail}")
+                    x = hit.x
+                    y = hit.y
+                    // 识别成功 = 拿到了真快门的真实位置，存下来当下次的兜底。
+                    // 存的是「物理屏幕比例」，换分辨率也还能用。
+                    ConfigStore.saveShutterPoint(this, x, y, sw, sh)
                 } else {
-                    // 兜底：识别不出来（旧系统 / 截图被拒 / 白盘被挡）就回退到经验比例。
-                    // 91% 是 2026-09-25 真机逐次数出来的值，虽然可能偏，
-                    // 但快门圆盘够大，仍有机会命中。
-                    val dm = resources.displayMetrics
-                    x = dm.widthPixels * 0.5f
-                    y = dm.heightPixels * 0.91f
-                    Logger.log(this, "   · 未识别到白色快门，回退比例坐标 ($x, $y)")
+                    // 兜底链：历史成功坐标 → 默认比例。
+                    //
+                    // ⚠️ 这里【不要】再用写死的 50%,91%。真机实测那个比例算出来
+                    //    y≈2068，而快门真实位置 y≈2180 —— 偏 112px，等于闭着眼点，
+                    //    点了也白点。回退要退到【真的到过的地方】，不是退到猜。
+                    val hist = ConfigStore.shutterPoint(this)
+                    if (hist != null) {
+                        x = hist.xRatio * sw
+                        y = hist.yRatio * sh
+                        Logger.log(
+                            this,
+                            "   · 未识别到白斑 —— 回退【上次成功坐标】" +
+                                "(${x.toInt()}, ${y.toInt()})，物理屏 ${sw}x${sh}"
+                        )
+                    } else {
+                        x = sw * 0.5f
+                        y = sh * 0.91f
+                        Logger.log(
+                            this,
+                            "   · 未识别到白斑，且【从无成功记录】—— 只能退默认比例 " +
+                                "(${x.toInt()}, ${y.toInt()})，这一击大概率点空"
+                        )
+                    }
                 }
                 val ok = StepEngine.tap(this, x, y)
                 Logger.log(this, if (ok) "   ✓ 已点击快门" else "   ✗ 快门点击失败")
